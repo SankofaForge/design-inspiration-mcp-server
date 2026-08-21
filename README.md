@@ -105,3 +105,15 @@ Then ask Claude to read the image file — it can see and describe the design.
 ## License
 
 MIT
+
+## Declarative 3D asset workflow
+
+References can declare that a site concept needs 3D assets. `design_prepare_references` validates the requirement and returns an `assetPlan`; it does not create files, call Blender, or invoke another MCP.
+
+When an asset plan contains `route: "blender"`, the host application or agent must route that task to the available Blender MCP. This is host-level routing, not an invocation performed by this server. Preserve the asset ID and acceptance requirements in the Blender task.
+
+Use [`examples/blender-asset-task.json`](examples/blender-asset-task.json) as the handoff shape. Include subject, visual intent, camera, composition, materials, lighting, animation, web-ready output formats, performance limits, and acceptance expectations. Web outputs normally include compressed `.glb` or `.gltf` plus a `.png` or `.webp` fallback. Acceptance verifies clean-viewer loading, framing, materials, animations, and performance budgets.
+
+Expected handoff: `design_prepare_references -> assetPlan.route = "blender" -> host application -> Blender MCP -> native site implementation and browser QA`.
+
+Do not replace a declared 3D requirement with CSS or a placeholder without user approval. If Blender is unavailable, report the blocked asset task and retain the declarative handoff.

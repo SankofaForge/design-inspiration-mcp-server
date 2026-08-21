@@ -1,0 +1,13 @@
+{
+  "assetId": "hero-object",
+  "route": "blender",
+  "role": "Interactive hero centerpiece",
+  "subject": "A compact abstract architectural form with soft bevels",
+  "visualIntent": "Calm, precise, editorial, and readable against a dark hero background",
+  "camera": {"projection": "perspective", "framing": "centered three-quarter view", "focalLengthMm": 50, "transparentBackground": true},
+  "animation": {"required": true, "durationSeconds": 12, "loop": true},
+  "preferredFormats": ["glb", "png", "webp"],
+  "performance": {"maxTriangles": 100000, "maxTextureDimension": 2048, "maxTextureMemoryMb": 16, "maxGlbSizeMb": 8},
+  "acceptance": ["Opens in a clean web viewer without missing textures.", "Has the requested framing and orientation.", "Contains the requested animation and meets all performance budgets."],
+  "delivery": {"web": true, "outputs": ["public/assets/hero-object.glb", "public/assets/hero-object.webp"]}
+}

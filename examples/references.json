@@ -1,0 +1,11 @@
+{
+  "references": [
+    {
+      "url": "https://example.com/",
+      "role": "motion reference",
+      "captureName": "example-motion",
+      "extractTokens": true,
+      "requires3d": false
+    }
+  ]
+}

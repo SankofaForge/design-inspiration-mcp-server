@@ -549,6 +549,70 @@ server.registerTool("design_extract_tokens", {
   }
 });
 
+const PrepareReferencesInputSchema = z.object({
+  references: z.array(z.object({
+    url: z.string().trim().url().refine((value) => /^https?:$/.test(new URL(value).protocol)),
+    role: z.string().trim().min(1).max(120),
+    captureName: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
+    extractTokens: z.boolean().default(false),
+    requires3d: z.boolean().default(false),
+    assetRequirements: z.array(z.object({
+      id: z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
+      kind: z.enum(["3d-model", "3d-render"]),
+      role: z.string().trim().min(1).max(160),
+      preferredFormats: z.array(z.enum(["glb", "gltf", "png", "webp", "usdz"])).min(1).max(5),
+      delivery: z.enum(["web", "reference"]),
+      prompt: z.string().trim().max(1000).optional(),
+      performanceBudget: z.object({
+        maxTriangles: z.number().int().positive().optional(),
+        maxTextureMb: z.number().positive().optional(),
+      }).strict().optional(),
+    }).strict()).max(20).default([]),
+  }).strict()).min(1).max(100),
+}).strict();
+
+type PrepareReferencesInput = z.infer<typeof PrepareReferencesInputSchema>;
+
+server.registerTool("design_prepare_references", {
+  title: "Prepare design references",
+  description: "Validate and normalize selected references. Does not browse, capture, or invoke other MCPs.",
+  inputSchema: PrepareReferencesInputSchema,
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+}, async (params: PrepareReferencesInput) => {
+  const references = params.references.map((reference) => {
+    const url = new URL(reference.url);
+    url.hash = "";
+    const assetRequirements = reference.assetRequirements.length > 0
+      ? reference.assetRequirements
+      : reference.requires3d
+        ? [{
+            id: `${reference.captureName}-3d`,
+            kind: "3d-render" as const,
+            role: "3D asset indicated by the selected reference",
+            preferredFormats: ["glb", "png"] as const,
+            delivery: "web" as const,
+            prompt: reference.role,
+          }]
+        : [];
+    return { ...reference, url: url.toString(), assetRequirements };
+  });
+  const assetPlan = references.flatMap((reference) => reference.assetRequirements.map((asset) => ({
+    assetId: asset.id,
+    route: "blender" as const,
+    reason: `${asset.kind} requested for ${reference.captureName}`,
+    outputs: asset.preferredFormats,
+    nextAction: "Create or modify a Blender scene and export web-ready assets",
+    sourceReference: reference.url,
+    asset,
+  })));
+  const markdown = [
+    "# Prepared design references", "", `Prepared ${references.length} reference${references.length === 1 ? "" : "s"}.`, "",
+    ...references.map((reference) => `- [${reference.captureName}](${reference.url}) — ${reference.role}; capture${reference.extractTokens ? ", extract tokens" : ""}${reference.assetRequirements.length ? `, ${reference.assetRequirements.length} asset requirement(s)` : ""}.`),
+    ...(assetPlan.length ? ["", "## Asset plan", "", ...assetPlan.map((asset) => `- \`${asset.assetId}\` → ${asset.route}; outputs: ${asset.outputs.join(", ")}.`)]: []),
+  ].join("\n");
+  return { content: [{ type: "text" as const, text: markdown }], structuredContent: { references, count: references.length, assetPlan } };
+});
+
 async function main() {
   if (!process.env.SERPER_API_KEY) {
     console.error("WARNING: SERPER_API_KEY not set. Get a free key at https://serper.dev");
