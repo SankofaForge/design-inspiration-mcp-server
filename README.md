@@ -117,3 +117,13 @@ Use [`examples/blender-asset-task.json`](examples/blender-asset-task.json) as th
 Expected handoff: `design_prepare_references -> assetPlan.route = "blender" -> host application -> Blender MCP -> native site implementation and browser QA`.
 
 Do not replace a declared 3D requirement with CSS or a placeholder without user approval. If Blender is unavailable, report the blocked asset task and retain the declarative handoff.
+
+## Declarative 2D animation workflow
+
+References can also declare animated SVG or Lottie deliverables. The server validates the animation requirements and returns an `assetPlan` route; it does not call SVGator or Lottie Creator itself.
+
+Use `kind: "animated-svg"` for a web-native animated SVG, or `kind: "lottie"` when Lottie is the primary delivery format. Set `preferredTool` to `"svgator"` or `"lottie-creator"` when the default route should be overridden. Without an explicit tool, animated SVG routes to SVGator and Lottie routes to Lottie Creator.
+
+Animation requirements can include duration, loop behavior, trigger, reduced-motion behavior, and file or path budgets. The host application must route `assetPlan.route = "svgator"` to the connected SVGator MCP or `assetPlan.route = "lottie-creator"` to Lottie Creator MCP, then preserve the asset ID and acceptance requirements during implementation.
+
+See [`examples/svgator-asset-task.json`](examples/svgator-asset-task.json) for a complete handoff shape. The expected flow is `design_prepare_references -> assetPlan.route = "svgator" -> host application -> SVGator MCP -> export -> native site implementation and browser motion QA`.

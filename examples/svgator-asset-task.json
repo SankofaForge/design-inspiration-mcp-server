@@ -1,0 +1,32 @@
+{
+  "assetId": "hero-logo-reveal",
+  "route": "svgator",
+  "kind": "animated-svg",
+  "role": "Animated brand mark in the hero",
+  "prompt": "Reveal the logo with a restrained 900ms ease-out draw-on animation",
+  "preferredFormats": ["svg", "lottie"],
+  "animation": {
+    "durationMs": 900,
+    "loop": false,
+    "trigger": "in-view",
+    "reducedMotion": "static"
+  },
+  "performanceBudget": {
+    "maxFileKb": 75,
+    "maxPaths": 80,
+    "maxFps": 60
+  },
+  "acceptance": [
+    "Exports as a self-contained animated SVG and a Lottie-compatible JSON asset.",
+    "Preserves the requested timing and trigger behavior.",
+    "Provides a static reduced-motion fallback.",
+    "Meets the file-size and path-count budgets."
+  ],
+  "delivery": {
+    "web": true,
+    "outputs": [
+      "public/assets/hero-logo-reveal.svg",
+      "public/assets/hero-logo-reveal.json"
+    ]
+  }
+}
