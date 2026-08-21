@@ -549,6 +549,48 @@ server.registerTool("design_extract_tokens", {
   }
 });
 
+const AssetRequirementSchema = z.object({
+  id: z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
+  kind: z.enum(["3d-model", "3d-render", "animated-svg", "lottie"]),
+  role: z.string().trim().min(1).max(160),
+  preferredTool: z.enum(["blender", "svgator", "lottie-creator"]).optional(),
+  preferredFormats: z.array(z.enum(["glb", "gltf", "png", "webp", "usdz", "svg", "lottie", "dotlottie"])).min(1).max(5),
+  delivery: z.enum(["web", "reference"]),
+  prompt: z.string().trim().max(1000).optional(),
+  animation: z.object({
+    durationMs: z.number().int().positive().max(120000),
+    loop: z.boolean().default(false),
+    trigger: z.enum(["autoplay", "load", "in-view", "hover", "click", "scroll", "interaction", "state-machine"]).default("autoplay"),
+    reducedMotion: z.enum(["static", "disable", "simplify"]).default("static"),
+    frameRate: z.number().int().positive().max(120).optional(),
+  }).strict().optional(),
+  performanceBudget: z.object({
+    maxTriangles: z.number().int().positive().optional(),
+    maxTextureMb: z.number().positive().optional(),
+    maxFileKb: z.number().int().positive().optional(),
+    maxPaths: z.number().int().positive().optional(),
+    maxFps: z.number().int().positive().max(120).optional(),
+  }).strict().optional(),
+}).strict().superRefine((asset, ctx) => {
+  const is2d = asset.kind === "animated-svg" || asset.kind === "lottie";
+  if (is2d && !asset.animation) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "animation is required for animated-svg and lottie assets", path: ["animation"] });
+  }
+  if (asset.kind === "animated-svg" && !asset.preferredFormats.some((format) => ["svg", "lottie", "dotlottie"].includes(format))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "animated-svg assets require svg, lottie, or dotlottie output", path: ["preferredFormats"] });
+  }
+  if (asset.kind === "lottie" && !asset.preferredFormats.some((format) => ["lottie", "dotlottie"].includes(format))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "lottie assets require lottie or dotlottie output", path: ["preferredFormats"] });
+  }
+  if (asset.kind === "3d-model" || asset.kind === "3d-render") {
+    if (asset.preferredTool && asset.preferredTool !== "blender") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "3D assets must use Blender", path: ["preferredTool"] });
+    }
+  } else if (asset.preferredTool === "blender") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "2D assets cannot use Blender", path: ["preferredTool"] });
+  }
+});
+
 const PrepareReferencesInputSchema = z.object({
   references: z.array(z.object({
     url: z.string().trim().url().refine((value) => /^https?:$/.test(new URL(value).protocol)),
@@ -556,20 +598,19 @@ const PrepareReferencesInputSchema = z.object({
     captureName: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
     extractTokens: z.boolean().default(false),
     requires3d: z.boolean().default(false),
-    assetRequirements: z.array(z.object({
-      id: z.string().trim().min(1).max(80).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
-      kind: z.enum(["3d-model", "3d-render"]),
-      role: z.string().trim().min(1).max(160),
-      preferredFormats: z.array(z.enum(["glb", "gltf", "png", "webp", "usdz"])).min(1).max(5),
-      delivery: z.enum(["web", "reference"]),
-      prompt: z.string().trim().max(1000).optional(),
-      performanceBudget: z.object({
-        maxTriangles: z.number().int().positive().optional(),
-        maxTextureMb: z.number().positive().optional(),
-      }).strict().optional(),
-    }).strict()).max(20).default([]),
+    assetRequirements: z.array(AssetRequirementSchema).max(20).default([]),
   }).strict()).min(1).max(100),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  const ids = new Set<string>();
+  value.references.forEach((reference, referenceIndex) => {
+    reference.assetRequirements.forEach((asset, assetIndex) => {
+      if (ids.has(asset.id)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate asset ID: ${asset.id}`, path: ["references", referenceIndex, "assetRequirements", assetIndex, "id"] });
+      }
+      ids.add(asset.id);
+    });
+  });
+});
 
 type PrepareReferencesInput = z.infer<typeof PrepareReferencesInputSchema>;
 
@@ -598,17 +639,21 @@ server.registerTool("design_prepare_references", {
   });
   const assetPlan = references.flatMap((reference) => reference.assetRequirements.map((asset) => ({
     assetId: asset.id,
-    route: "blender" as const,
+    route: asset.kind === "3d-model" || asset.kind === "3d-render"
+      ? "blender" as const
+      : (asset.preferredTool ?? (asset.kind === "lottie" ? "lottie-creator" : "svgator")) as "svgator" | "lottie-creator",
     reason: `${asset.kind} requested for ${reference.captureName}`,
     outputs: asset.preferredFormats,
-    nextAction: "Create or modify a Blender scene and export web-ready assets",
+    nextAction: asset.kind === "3d-model" || asset.kind === "3d-render"
+      ? "Create or modify a Blender scene and export web-ready assets"
+      : "Create or edit the animation in the selected 2D animation MCP and export the requested formats",
     sourceReference: reference.url,
     asset,
   })));
   const markdown = [
     "# Prepared design references", "", `Prepared ${references.length} reference${references.length === 1 ? "" : "s"}.`, "",
     ...references.map((reference) => `- [${reference.captureName}](${reference.url}) — ${reference.role}; capture${reference.extractTokens ? ", extract tokens" : ""}${reference.assetRequirements.length ? `, ${reference.assetRequirements.length} asset requirement(s)` : ""}.`),
-    ...(assetPlan.length ? ["", "## Asset plan", "", ...assetPlan.map((asset) => `- \`${asset.assetId}\` → ${asset.route}; outputs: ${asset.outputs.join(", ")}.`)]: []),
+    ...(assetPlan.length ? ["", "## Asset plan", "", ...assetPlan.map((asset) => `- \`${asset.assetId}\` (${asset.asset.kind}) → ${asset.route}; outputs: ${asset.outputs.join(", ")}.`)]: []),
   ].join("\n");
   return { content: [{ type: "text" as const, text: markdown }], structuredContent: { references, count: references.length, assetPlan } };
 });
