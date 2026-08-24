@@ -5,10 +5,10 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { execFile } from "node:child_process";
 import { z } from "zod";
 
-const SERPER_API_URL = "https://google.serper.dev";
-const CHARACTER_LIMIT = 25000;
+export const SERPER_API_URL = "https://google.serper.dev";
+export const CHARACTER_LIMIT = 25000;
 
-const DESIGN_SITES = {
+export const DESIGN_SITES = {
   dribbble: "dribbble.com",
   behance: "behance.net",
   awwwards: "awwwards.com",
@@ -16,9 +16,9 @@ const DESIGN_SITES = {
   pinterest: "pinterest.com",
 } as const;
 
-type DesignSite = keyof typeof DESIGN_SITES;
+export type DesignSite = keyof typeof DESIGN_SITES;
 
-async function serperRequest<T>(
+export async function serperRequest<T>(
   endpoint: string,
   body: Record<string, unknown>
 ): Promise<T> {
@@ -50,7 +50,7 @@ async function serperRequest<T>(
   return response.json() as Promise<T>;
 }
 
-interface SerperImage {
+export interface SerperImage {
   title: string;
   imageUrl: string;
   imageWidth?: number;
@@ -60,24 +60,24 @@ interface SerperImage {
   link: string;
 }
 
-interface SerperImagesResponse {
+export interface SerperImagesResponse {
   images: SerperImage[];
   searchParameters?: Record<string, unknown>;
 }
 
-interface SerperOrganicResult {
+export interface SerperOrganicResult {
   title: string;
   link: string;
   snippet: string;
   position: number;
 }
 
-interface SerperSearchResponse {
+export interface SerperSearchResponse {
   organic: SerperOrganicResult[];
   searchParameters?: Record<string, unknown>;
 }
 
-function formatImageResults(images: SerperImage[], query: string): string {
+export function formatImageResults(images: SerperImage[], query: string): string {
   if (!images.length) return `No design inspiration found for "${query}".`;
 
   const lines = [`# Design Inspiration: "${query}"`, "", `Found ${images.length} results`, ""];
@@ -99,7 +99,7 @@ function formatImageResults(images: SerperImage[], query: string): string {
   return result;
 }
 
-function formatSearchResults(results: SerperOrganicResult[], query: string): string {
+export function formatSearchResults(results: SerperOrganicResult[], query: string): string {
   if (!results.length) return `No results found for "${query}".`;
 
   const lines = [`# Design References: "${query}"`, "", `Found ${results.length} results`, ""];
@@ -117,7 +117,7 @@ function formatSearchResults(results: SerperOrganicResult[], query: string): str
   return result;
 }
 
-function buildSiteQuery(query: string, sites: DesignSite[]): string {
+export function buildSiteQuery(query: string, sites: DesignSite[]): string {
   if (!sites.length) {
     const allSites = Object.values(DESIGN_SITES);
     const siteFilter = allSites.map((s) => `site:${s}`).join(" OR ");
@@ -127,12 +127,12 @@ function buildSiteQuery(query: string, sites: DesignSite[]): string {
   return `${query} (${siteFilter})`;
 }
 
-const server = new McpServer({
+export const server = new McpServer({
   name: "design-inspiration-mcp-server",
   version: "1.0.0",
 });
 
-const SearchImagesInputSchema = z
+export const SearchImagesInputSchema = z
   .object({
     query: z
       .string()
@@ -208,7 +208,7 @@ server.registerTool("design_search_images", {
   }
 });
 
-const SearchReferencesInputSchema = z
+export const SearchReferencesInputSchema = z
   .object({
     query: z
       .string()
@@ -279,7 +279,7 @@ server.registerTool("design_search_references", {
   }
 });
 
-const SearchStyleInputSchema = z
+export const SearchStyleInputSchema = z
   .object({
     style: z
       .string()
@@ -395,7 +395,7 @@ server.registerTool("design_search_styles", {
 
 // --- design_extract_tokens tool ---
 
-interface DesignTokens {
+export interface DesignTokens {
   colors?: Record<string, unknown>;
   typography?: Record<string, unknown>;
   spacing?: Record<string, unknown>;
@@ -404,7 +404,7 @@ interface DesignTokens {
   [key: string]: unknown;
 }
 
-function runDembrandt(url: string, flags: string[]): Promise<string> {
+export function runDembrandt(url: string, flags: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const args = [url, "--json-only", ...flags];
     execFile("dembrandt", args, { timeout: 60_000, maxBuffer: 5 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -420,7 +420,7 @@ function runDembrandt(url: string, flags: string[]): Promise<string> {
   });
 }
 
-function formatTokens(tokens: DesignTokens, url: string): string {
+export function formatTokens(tokens: DesignTokens, url: string): string {
   const lines = [`# Design Tokens: ${url}`, ""];
 
   if (tokens.colors && Object.keys(tokens.colors).length) {
@@ -493,7 +493,7 @@ function formatTokens(tokens: DesignTokens, url: string): string {
   return result;
 }
 
-const ExtractTokensInputSchema = z
+export const ExtractTokensInputSchema = z
   .object({
     url: z
       .string()
