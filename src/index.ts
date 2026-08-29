@@ -170,8 +170,8 @@ export const SearchImagesInputSchema = z
 type SearchImagesInput = z.infer<typeof SearchImagesInputSchema>;
 
 server.registerTool("design_search_images", {
-  title: "Search design images",
-  description: `Search Awwwards.com for design images. Returns image URLs, dimensions, and Awwwards page links. Use specific UI terms ("fintech dashboard dark mode") over vague ones ("nice design").`,
+  title: "Deprecated: Search design images",
+  description: `Deprecated. Use design_search_references for Awwwards page links or design_search_styles for aesthetic research. This tool remains available for compatibility.`,
   inputSchema: SearchImagesInputSchema,
   annotations: {
     readOnlyHint: true,

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Deprecate `design_search_images` while keeping it registered for existing clients. Use `design_search_references` for Awwwards page links or `design_search_styles` for aesthetic research.
 - Restrict image search, reference search, style search, token extraction, and reference preparation to Awwwards.com.
 
 ## 1.1.0 — 2026-03-01

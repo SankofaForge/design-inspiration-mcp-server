@@ -8,7 +8,7 @@ Find inspiration, then extract exact tokens from sites you like.
 
 ## Why
 
-I wanted Claude to pull design references while building UI without leaving the terminal. The search tools return image URLs and Awwwards.com page links that can be reviewed directly.
+I wanted Claude to pull design references while building UI without leaving the terminal. The search tools return Awwwards.com pages that can be reviewed directly.
 
 The search side wraps Serper's image and web search endpoints with pre-configured site filters. Simple.
 
@@ -16,7 +16,7 @@ The token extraction tool reads an Awwwards.com page and reports its colors, fon
 
 ## Tools
 
-**`design_search_images`** — Search Awwwards.com for image references. Returns image URLs, dimensions, and Awwwards.com page links.
+**`design_search_images`**: Deprecated. The tool remains available for existing clients. Use `design_search_references` for Awwwards page links or `design_search_styles` for aesthetic research.
 
 **`design_search_references`** — Search Awwwards.com pages. Returns article titles, snippets, and links for case studies and design write-ups.
 
@@ -24,7 +24,7 @@ The token extraction tool reads an Awwwards.com page and reports its colors, fon
 
 **`design_extract_tokens`** — Extract design tokens from an Awwwards.com page. Supports `dark_mode` and `mobile` flags. Requires `dembrandt` installed globally (`npm install -g dembrandt`).
 
-The three search tools always query Awwwards.com. They accept a `num` parameter to control result count.
+The supported search tools query Awwwards.com. They accept a `num` parameter to control result count.
 
 ## Setup
 
@@ -71,7 +71,7 @@ npm run build
 
 ## How it actually works
 
-Each search tool appends `(site:awwwards.com)` to the query. It then calls Serper's `/images` or `/search` endpoint and filters the returned page links to Awwwards.com.
+The search tools append `(site:awwwards.com)` to the query. They call Serper's `/images` or `/search` endpoint and filter returned page links to Awwwards.com. `design_search_images` remains registered for compatibility but is deprecated.
 
 The `design_search_styles` tool runs both endpoints in parallel (`Promise.all`) to get images and articles for the same query.
 
