@@ -1,30 +1,30 @@
 # design-inspiration
 
-MCP server that searches Dribbble, Behance, Awwwards, Mobbin, and Pinterest for UI design inspiration. Built for Claude Code but works with any MCP client.
+MCP server that searches Awwwards.com for UI design inspiration. It works with Claude Code and other MCP clients.
 
-Uses the [Serper API](https://serper.dev) (Google search) with `site:` filters to scope results to design platforms only. Can also extract actual design tokens (colors, fonts, spacing) from any live website via headless browser.
+Uses the [Serper API](https://serper.dev) with a `site:awwwards.com` filter. It can also extract design tokens from Awwwards.com pages with a headless browser.
 
 Find inspiration, then extract exact tokens from sites you like.
 
 ## Why
 
-I wanted Claude to pull design references while building UI — look at real Dribbble shots, find color palettes, browse layout patterns — without leaving the terminal. The existing options either required Playwright (heavy) or didn't return image URLs I could actually download and view.
+I wanted Claude to pull design references while building UI without leaving the terminal. The search tools return image URLs and Awwwards.com page links that can be reviewed directly.
 
 The search side wraps Serper's image and web search endpoints with pre-configured site filters. Simple.
 
-The token extraction side came from a different itch: I'd find a site I liked on Dribbble, open it, and then manually eyedrop colors and inspect fonts. Now I just point `design_extract_tokens` at the URL and get the exact values back.
+The token extraction tool reads an Awwwards.com page and reports its colors, fonts, spacing, borders, and shadows.
 
 ## Tools
 
-**`design_search_images`** — Image search across design platforms. Returns image URLs, dimensions, source links. Good for finding visual references for a specific UI pattern.
+**`design_search_images`** — Search Awwwards.com for image references. Returns image URLs, dimensions, and Awwwards.com page links.
 
-**`design_search_references`** — Web search scoped to design sites. Returns article titles, snippets, links. Better for finding case studies, design system docs, or pattern explanations.
+**`design_search_references`** — Search Awwwards.com pages. Returns article titles, snippets, and links for case studies and design write-ups.
 
-**`design_search_styles`** — Searches for a specific aesthetic direction (color palette, typography, layout, animation). Runs both image and web search in parallel, returns combined results.
+**`design_search_styles`** — Search Awwwards.com for a specific aesthetic direction. It combines image and web results for color, typography, layout, or animation queries.
 
-**`design_extract_tokens`** — Extracts design tokens from a live website. Point it at any URL and get back colors, typography, spacing, border radii, and shadows. Supports `dark_mode` and `mobile` flags. Requires `dembrandt` installed globally (`npm install -g dembrandt`).
+**`design_extract_tokens`** — Extract design tokens from an Awwwards.com page. Supports `dark_mode` and `mobile` flags. Requires `dembrandt` installed globally (`npm install -g dembrandt`).
 
-The three search tools accept a `sites` parameter to filter to specific platforms, and a `num` parameter to control result count.
+The three search tools always query Awwwards.com. They accept a `num` parameter to control result count.
 
 ## Setup
 
@@ -71,11 +71,11 @@ npm run build
 
 ## How it actually works
 
-Each tool builds a search query by appending `site:dribbble.com OR site:behance.net OR ...` to whatever you searched for. Then it hits Serper's `/images` or `/search` endpoint and formats the response.
+Each search tool appends `(site:awwwards.com)` to the query. It then calls Serper's `/images` or `/search` endpoint and filters the returned page links to Awwwards.com.
 
 The `design_search_styles` tool runs both endpoints in parallel (`Promise.all`) to get images and articles for the same query.
 
-`design_extract_tokens` shells out to `dembrandt` (via `child_process.execFile`) with `--json-only`, parses the JSON output, and formats it into markdown + structured data. 60-second timeout. No extra npm dependencies — dembrandt runs as a global CLI and `child_process` is built-in.
+`design_extract_tokens` shells out to `dembrandt` (via `child_process.execFile`) with `--json-only`, parses the JSON output, and formats it into markdown and structured data. It has a 60-second timeout. `dembrandt` runs as a global CLI, so the project has no extra npm dependency for token extraction.
 
 Results are returned as both markdown (for display) and structured JSON (for programmatic use). Responses get truncated at 25,000 characters to avoid flooding the context window.
 
@@ -94,10 +94,10 @@ Search for specific UI patterns, not generic terms:
 "good design"
 ```
 
-You can download the returned image URLs and have Claude view them directly:
+You can download a returned image URL and have Claude view it directly:
 
 ```bash
-curl -sL "https://cdn.dribbble.com/..." -o /tmp/reference.jpg
+curl -sL "https://example-cdn.invalid/reference.jpg" -o /tmp/reference.jpg
 ```
 
 Then ask Claude to read the image file — it can see and describe the design.

@@ -3,20 +3,34 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { execFile } from "node:child_process";
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
 export const SERPER_API_URL = "https://google.serper.dev";
 export const CHARACTER_LIMIT = 25000;
+export const AWWWARDS_HOST = "awwwards.com";
 
 export const DESIGN_SITES = {
-  dribbble: "dribbble.com",
-  behance: "behance.net",
   awwwards: "awwwards.com",
-  mobbin: "mobbin.com",
-  pinterest: "pinterest.com",
 } as const;
 
 export type DesignSite = keyof typeof DESIGN_SITES;
+
+export function normalizeHttpUrl(value: string): string {
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+
+export function isAwwwardsUrl(value: string): boolean {
+  try {
+    const url = new URL(normalizeHttpUrl(value));
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      (url.hostname === AWWWARDS_HOST || url.hostname.endsWith(`.${AWWWARDS_HOST}`))
+    );
+  } catch {
+    return false;
+  }
+}
 
 export async function serperRequest<T>(
   endpoint: string,
@@ -77,6 +91,14 @@ export interface SerperSearchResponse {
   searchParameters?: Record<string, unknown>;
 }
 
+export function filterAwwwardsImages(images: SerperImage[]): SerperImage[] {
+  return images.filter((image) => isAwwwardsUrl(image.link));
+}
+
+export function filterAwwwardsResults(results: SerperOrganicResult[]): SerperOrganicResult[] {
+  return results.filter((result) => isAwwwardsUrl(result.link));
+}
+
 export function formatImageResults(images: SerperImage[], query: string): string {
   if (!images.length) return `No design inspiration found for "${query}".`;
 
@@ -117,14 +139,8 @@ export function formatSearchResults(results: SerperOrganicResult[], query: strin
   return result;
 }
 
-export function buildSiteQuery(query: string, sites: DesignSite[]): string {
-  if (!sites.length) {
-    const allSites = Object.values(DESIGN_SITES);
-    const siteFilter = allSites.map((s) => `site:${s}`).join(" OR ");
-    return `${query} (${siteFilter})`;
-  }
-  const siteFilter = sites.map((s) => `site:${DESIGN_SITES[s]}`).join(" OR ");
-  return `${query} (${siteFilter})`;
+export function buildSiteQuery(query: string): string {
+  return `${query} (site:${AWWWARDS_HOST})`;
 }
 
 export const server = new McpServer({
@@ -141,12 +157,6 @@ export const SearchImagesInputSchema = z
       .describe(
         'UI design search query. Examples: "dashboard dark mode", "mobile onboarding flow", "saas pricing page"'
       ),
-    sites: z
-      .array(z.enum(["dribbble", "behance", "awwwards", "mobbin", "pinterest"]))
-      .default([])
-      .describe(
-        "Filter to specific design sites. Empty array searches all sites. Options: dribbble, behance, awwwards, mobbin, pinterest"
-      ),
     num: z
       .number()
       .int()
@@ -161,7 +171,7 @@ type SearchImagesInput = z.infer<typeof SearchImagesInputSchema>;
 
 server.registerTool("design_search_images", {
   title: "Search design images",
-  description: `Image search across Dribbble, Behance, Awwwards, Mobbin, and Pinterest. Returns image URLs, dimensions, and source links. Use specific UI terms ("fintech dashboard dark mode") over vague ones ("nice design").`,
+  description: `Search Awwwards.com for design images. Returns image URLs, dimensions, and Awwwards page links. Use specific UI terms ("fintech dashboard dark mode") over vague ones ("nice design").`,
   inputSchema: SearchImagesInputSchema,
   annotations: {
     readOnlyHint: true,
@@ -171,13 +181,13 @@ server.registerTool("design_search_images", {
   },
 }, async (params: SearchImagesInput) => {
   try {
-    const siteQuery = buildSiteQuery(params.query + " UI design", params.sites);
+    const siteQuery = buildSiteQuery(params.query + " UI design");
     const data = await serperRequest<SerperImagesResponse>("/images", {
       q: siteQuery,
       num: params.num,
     });
 
-    const images = data.images || [];
+    const images = filterAwwwardsImages(data.images || []);
     const text = formatImageResults(images, params.query);
 
     return {
@@ -217,10 +227,6 @@ export const SearchReferencesInputSchema = z
       .describe(
         'UI design search query. Examples: "best dashboard designs 2025", "mobile navigation patterns"'
       ),
-    sites: z
-      .array(z.enum(["dribbble", "behance", "awwwards", "mobbin", "pinterest"]))
-      .default([])
-      .describe("Filter to specific design sites. Empty array searches all sites."),
     num: z
       .number()
       .int()
@@ -235,7 +241,7 @@ type SearchReferencesInput = z.infer<typeof SearchReferencesInputSchema>;
 
 server.registerTool("design_search_references", {
   title: "Search design references",
-  description: `Web search scoped to design platforms. Returns article titles, snippets, and links. Better than image search when you want case studies, write-ups, or design system documentation.`,
+  description: `Search Awwwards.com for design references. Returns article titles, snippets, and Awwwards page links. Use this for case studies, write-ups, or design system documentation.`,
   inputSchema: SearchReferencesInputSchema,
   annotations: {
     readOnlyHint: true,
@@ -245,13 +251,13 @@ server.registerTool("design_search_references", {
   },
 }, async (params: SearchReferencesInput) => {
   try {
-    const siteQuery = buildSiteQuery(params.query, params.sites);
+    const siteQuery = buildSiteQuery(params.query);
     const data = await serperRequest<SerperSearchResponse>("/search", {
       q: siteQuery,
       num: params.num,
     });
 
-    const results = data.organic || [];
+    const results = filterAwwwardsResults(data.organic || []);
     const text = formatSearchResults(results, params.query);
 
     return {
@@ -306,7 +312,7 @@ type SearchStyleInput = z.infer<typeof SearchStyleInputSchema>;
 
 server.registerTool("design_search_styles", {
   title: "Search design styles",
-  description: `Search for a specific aesthetic direction — color palettes, typography, layouts, or animation references. Runs image and web search in parallel and returns combined results.`,
+  description: `Search Awwwards.com for a specific aesthetic direction. Search color palettes, typography, layouts, or animation references. The tool returns image and web results.`,
   inputSchema: SearchStyleInputSchema,
   annotations: {
     readOnlyHint: true,
@@ -325,17 +331,15 @@ server.registerTool("design_search_styles", {
     };
 
     const query = `${params.style} ${typeKeywords[params.type]} UI design inspiration`;
-    const allSites = Object.values(DESIGN_SITES);
-    const siteFilter = allSites.map((s) => `site:${s}`).join(" OR ");
-    const fullQuery = `${query} (${siteFilter})`;
+    const fullQuery = buildSiteQuery(query);
 
     const [imageData, searchData] = await Promise.all([
       serperRequest<SerperImagesResponse>("/images", { q: fullQuery, num: params.num }),
       serperRequest<SerperSearchResponse>("/search", { q: fullQuery, num: params.num }),
     ]);
 
-    const images = imageData.images || [];
-    const results = searchData.organic || [];
+    const images = filterAwwwardsImages(imageData.images || []);
+    const results = filterAwwwardsResults(searchData.organic || []);
 
     const lines = [`# Style Inspiration: "${params.style}" (${params.type})`, ""];
 
@@ -498,7 +502,8 @@ export const ExtractTokensInputSchema = z
     url: z
       .string()
       .min(4, "URL is required")
-      .describe('Website URL to extract design tokens from. Examples: "https://stripe.com", "https://linear.app"'),
+      .refine(isAwwwardsUrl, "URL must be on Awwwards.com")
+      .describe('Awwwards.com URL to extract design tokens from. Example: "https://www.awwwards.com/sites/example"'),
     dark_mode: z
       .boolean()
       .default(false)
@@ -514,7 +519,7 @@ type ExtractTokensInput = z.infer<typeof ExtractTokensInputSchema>;
 
 server.registerTool("design_extract_tokens", {
   title: "Extract design tokens from website",
-  description: `Extract actual design tokens (colors, typography, spacing, borders, shadows) from a live website using headless browser. Give it any URL and get back the exact values used. Pairs well with the search tools — find inspiration, then extract tokens from sites you like.`,
+  description: `Extract design tokens from an Awwwards.com page using a headless browser. The URL must use the Awwwards.com domain.`,
   inputSchema: ExtractTokensInputSchema,
   annotations: {
     readOnlyHint: true,
@@ -524,7 +529,7 @@ server.registerTool("design_extract_tokens", {
   },
 }, async (params: ExtractTokensInput) => {
   try {
-    const url = params.url.startsWith("http") ? params.url : `https://${params.url}`;
+    const url = normalizeHttpUrl(params.url);
     const flags: string[] = [];
     if (params.dark_mode) flags.push("--dark-mode");
     if (params.mobile) flags.push("--mobile");
@@ -591,9 +596,14 @@ const AssetRequirementSchema = z.object({
   }
 });
 
-const PrepareReferencesInputSchema = z.object({
+export const PrepareReferencesInputSchema = z.object({
   references: z.array(z.object({
-    url: z.string().trim().url().refine((value) => /^https?:$/.test(new URL(value).protocol)),
+    url: z
+      .string()
+      .trim()
+      .url()
+      .refine((value) => /^https?:$/.test(new URL(value).protocol), "URL must use HTTP or HTTPS")
+      .refine(isAwwwardsUrl, "Reference URL must be on Awwwards.com"),
     role: z.string().trim().min(1).max(120),
     captureName: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
     extractTokens: z.boolean().default(false),
@@ -668,7 +678,9 @@ async function main() {
   console.error("Design Inspiration MCP server running on stdio");
 }
 
-main().catch((error) => {
-  console.error("Fatal error:", error);
-  process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error("Fatal error:", error);
+    process.exit(1);
+  });
+}

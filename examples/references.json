@@ -1,9 +1,9 @@
 {
   "references": [
     {
-      "url": "https://example.com/",
+      "url": "https://www.awwwards.com/",
       "role": "motion reference",
-      "captureName": "example-motion",
+      "captureName": "awwwards-motion",
       "extractTokens": true,
       "requires3d": false
     }
