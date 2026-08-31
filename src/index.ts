@@ -668,7 +668,7 @@ server.registerTool("design_prepare_references", {
   return { content: [{ type: "text" as const, text: markdown }], structuredContent: { references, count: references.length, assetPlan } };
 });
 
-async function main() {
+export async function main() {
   if (!process.env.SERPER_API_KEY) {
     console.error("WARNING: SERPER_API_KEY not set. Get a free key at https://serper.dev");
   }
@@ -678,9 +678,11 @@ async function main() {
   console.error("Design Inspiration MCP server running on stdio");
 }
 
+/* v8 ignore start */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error) => {
     console.error("Fatal error:", error);
     process.exit(1);
   });
 }
+/* v8 ignore stop */
