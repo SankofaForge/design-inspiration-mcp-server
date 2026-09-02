@@ -188,10 +188,12 @@ describe("Formatting helpers", () => {
       colors: {
         primary: "#123456",
         palette: { dark: "#000000", light: "#ffffff" },
+        unavailable: null,
       },
       typography: {
         heading: "Inter 24px",
         scale: { h1: "32px", h2: "24px" },
+        unavailable: null,
       },
       spacing: {
         sm: "8px",
@@ -234,6 +236,17 @@ describe("Formatting helpers", () => {
     const formatted = formatTokens(tokens, "https://awwwards.com/sites/test");
     expect(formatted.length).toBeLessThanOrEqual(CHARACTER_LIMIT + 50);
     expect(formatted).toContain("...(truncated)");
+  });
+
+  it("skips empty token sections", () => {
+    const formatted = formatTokens(
+      { colors: {}, typography: {} },
+      "https://awwwards.com/sites/empty"
+    );
+
+    expect(formatted).toBe("# Design Tokens: https://awwwards.com/sites/empty\n");
+    expect(formatted).not.toContain("## Colors");
+    expect(formatted).not.toContain("## Typography");
   });
 });
 
