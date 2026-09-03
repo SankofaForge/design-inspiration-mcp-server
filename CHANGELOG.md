@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Deprecate `design_search_images` while keeping it registered for existing clients. Use `design_search_references` for Awwwards page links or `design_search_styles` for aesthetic research.
+- Remove the legacy image-search tool. Use reference search for Awwwards page links or style search for aesthetic research.
 - Restrict image search, reference search, style search, token extraction, and reference preparation to Awwwards.com.
 
 ## 1.1.0 — 2026-03-01
@@ -15,8 +15,7 @@ Requires `dembrandt` installed globally (`npm install -g dembrandt`). No new npm
 
 ## 1.0.0 — 2025-02-20
 
-Initial release with three Awwwards.com search tools:
+Initial release with Awwwards.com search tools:
 
-- `design_search_images` — image search
 - `design_search_references` — reference search
 - `design_search_styles` — combined image and web search for an aesthetic direction

@@ -16,8 +16,6 @@ The token extraction tool reads an Awwwards.com page and reports its colors, fon
 
 ## Tools
 
-**`design_search_images`**: Deprecated. The tool remains available for existing clients. Use `design_search_references` for Awwwards page links or `design_search_styles` for aesthetic research.
-
 **`design_search_references`** — Search Awwwards.com pages. Returns article titles, snippets, and links for case studies and design write-ups.
 
 **`design_search_styles`** — Search Awwwards.com for a specific aesthetic direction. It combines image and web results for color, typography, layout, or animation queries.
@@ -71,7 +69,7 @@ npm run build
 
 ## How it actually works
 
-The search tools append `(site:awwwards.com)` to the query. They call Serper's `/images` or `/search` endpoint and filter returned page links to Awwwards.com. `design_search_images` remains registered for compatibility but is deprecated.
+The search tools append `(site:awwwards.com)` to the query. They call Serper's `/images` or `/search` endpoint and filter returned page links to Awwwards.com.
 
 The `design_search_styles` tool runs both endpoints in parallel (`Promise.all`) to get images and articles for the same query.
 

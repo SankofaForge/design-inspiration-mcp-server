@@ -99,28 +99,6 @@ export function filterAwwwardsResults(results: SerperOrganicResult[]): SerperOrg
   return results.filter((result) => isAwwwardsUrl(result.link));
 }
 
-export function formatImageResults(images: SerperImage[], query: string): string {
-  if (!images.length) return `No design inspiration found for "${query}".`;
-
-  const lines = [`# Design Inspiration: "${query}"`, "", `Found ${images.length} results`, ""];
-  for (const img of images) {
-    lines.push(`## ${img.title}`);
-    lines.push(`- **Source**: ${img.source}`);
-    lines.push(`- **Image**: ${img.imageUrl}`);
-    lines.push(`- **Page**: ${img.link}`);
-    if (img.imageWidth && img.imageHeight) {
-      lines.push(`- **Size**: ${img.imageWidth}x${img.imageHeight}`);
-    }
-    lines.push("");
-  }
-
-  let result = lines.join("\n");
-  if (result.length > CHARACTER_LIMIT) {
-    result = result.slice(0, CHARACTER_LIMIT) + "\n\n...(truncated, use fewer results)";
-  }
-  return result;
-}
-
 export function formatSearchResults(results: SerperOrganicResult[], query: string): string {
   if (!results.length) return `No results found for "${query}".`;
 
@@ -146,76 +124,6 @@ export function buildSiteQuery(query: string): string {
 export const server = new McpServer({
   name: "design-inspiration-mcp-server",
   version: "1.0.0",
-});
-
-export const SearchImagesInputSchema = z
-  .object({
-    query: z
-      .string()
-      .min(2, "Query must be at least 2 characters")
-      .max(200, "Query must not exceed 200 characters")
-      .describe(
-        'UI design search query. Examples: "dashboard dark mode", "mobile onboarding flow", "saas pricing page"'
-      ),
-    num: z
-      .number()
-      .int()
-      .min(1)
-      .max(40)
-      .default(10)
-      .describe("Number of image results to return (1-40, default: 10)"),
-  })
-  .strict();
-
-type SearchImagesInput = z.infer<typeof SearchImagesInputSchema>;
-
-server.registerTool("design_search_images", {
-  title: "Deprecated: Search design images",
-  description: `Deprecated. Use design_search_references for Awwwards page links or design_search_styles for aesthetic research. This tool remains available for compatibility.`,
-  inputSchema: SearchImagesInputSchema,
-  annotations: {
-    readOnlyHint: true,
-    destructiveHint: false,
-    idempotentHint: true,
-    openWorldHint: true,
-  },
-}, async (params: SearchImagesInput) => {
-  try {
-    const siteQuery = buildSiteQuery(params.query + " UI design");
-    const data = await serperRequest<SerperImagesResponse>("/images", {
-      q: siteQuery,
-      num: params.num,
-    });
-
-    const images = filterAwwwardsImages(data.images || []);
-    const text = formatImageResults(images, params.query);
-
-    return {
-      content: [{ type: "text" as const, text }],
-      structuredContent: {
-        query: params.query,
-        count: images.length,
-        images: images.map((img) => ({
-          title: img.title,
-          imageUrl: img.imageUrl,
-          thumbnailUrl: img.thumbnailUrl,
-          source: img.source,
-          link: img.link,
-          width: img.imageWidth,
-          height: img.imageHeight,
-        })),
-      },
-    };
-  } catch (error) {
-    return {
-      content: [
-        {
-          type: "text" as const,
-          text: error instanceof Error ? error.message : `Error: ${String(error)}`,
-        },
-      ],
-    };
-  }
 });
 
 export const SearchReferencesInputSchema = z

@@ -8,13 +8,11 @@ import {
   DESIGN_SITES,
   ExtractTokensInputSchema,
   PrepareReferencesInputSchema,
-  SearchImagesInputSchema,
   SearchReferencesInputSchema,
   SearchStyleInputSchema,
   buildSiteQuery,
   filterAwwwardsImages,
   filterAwwwardsResults,
-  formatImageResults,
   formatSearchResults,
   formatTokens,
   isAwwwardsUrl,
@@ -110,47 +108,6 @@ describe("Awwwards source policy & helpers", () => {
 });
 
 describe("Formatting helpers", () => {
-  it("formats image results with empty array", () => {
-    expect(formatImageResults([], "minimal")).toBe('No design inspiration found for "minimal".');
-  });
-
-  it("formats image results with and without dimensions", () => {
-    const formatted = formatImageResults(
-      [
-        {
-          title: "Sample 1",
-          source: "Awwwards",
-          imageUrl: "https://awwwards.com/1.jpg",
-          link: "https://awwwards.com/sites/1",
-          imageWidth: 800,
-          imageHeight: 600,
-        },
-        {
-          title: "Sample 2",
-          source: "Awwwards",
-          imageUrl: "https://awwwards.com/2.jpg",
-          link: "https://awwwards.com/sites/2",
-        },
-      ],
-      "dashboard"
-    );
-    expect(formatted).toContain("# Design Inspiration: \"dashboard\"");
-    expect(formatted).toContain("- **Size**: 800x600");
-    expect(formatted).toContain("## Sample 2");
-  });
-
-  it("truncates long image results exceeding CHARACTER_LIMIT", () => {
-    const longList = Array.from({ length: 500 }, (_, i) => ({
-      title: `Item ${i} ` + "x".repeat(100),
-      source: "Awwwards",
-      imageUrl: `https://awwwards.com/${i}.jpg`,
-      link: `https://awwwards.com/sites/${i}`,
-    }));
-    const formatted = formatImageResults(longList, "many");
-    expect(formatted.length).toBeLessThanOrEqual(CHARACTER_LIMIT + 50);
-    expect(formatted).toContain("...(truncated, use fewer results)");
-  });
-
   it("formats search results with empty array", () => {
     expect(formatSearchResults([], "empty")).toBe('No results found for "empty".');
   });
@@ -389,12 +346,6 @@ describe("runDembrandt", () => {
 });
 
 describe("Schema validations", () => {
-  it("validates SearchImagesInputSchema", () => {
-    expect(SearchImagesInputSchema.safeParse({ query: "a" }).success).toBe(false);
-    expect(SearchImagesInputSchema.safeParse({ query: "ok", num: 50 }).success).toBe(false);
-    expect(SearchImagesInputSchema.safeParse({ query: "valid query", num: 10 }).success).toBe(true);
-  });
-
   it("validates SearchReferencesInputSchema", () => {
     expect(SearchReferencesInputSchema.safeParse({ query: "a" }).success).toBe(false);
     expect(SearchReferencesInputSchema.safeParse({ query: "valid reference", num: 5 }).success).toBe(true);
@@ -581,64 +532,12 @@ describe("Server request routing & tool execution via MCP client", () => {
   it("lists all registered tools", async () => {
     const list = await client.listTools();
     const toolNames = list.tools.map((t) => t.name);
-    expect(toolNames).toContain("design_search_images");
-    expect(toolNames).toContain("design_search_references");
-    expect(toolNames).toContain("design_search_styles");
-    expect(toolNames).toContain("design_extract_tokens");
-    expect(toolNames).toContain("design_prepare_references");
-  });
-
-  it("executes design_search_images tool successfully", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        images: [
-          {
-            title: "Awwwards Dashboard",
-            imageUrl: "https://awwwards.com/img1.png",
-            thumbnailUrl: "https://awwwards.com/thumb1.png",
-            source: "Awwwards",
-            link: "https://www.awwwards.com/sites/sample",
-            imageWidth: 1200,
-            imageHeight: 800,
-          },
-        ],
-      }),
-    } as unknown as Response);
-
-    const res = await client.callTool({
-      name: "design_search_images",
-      arguments: { query: "dashboard", num: 5 },
-    });
-
-    const structured = (res as any).structuredContent;
-    expect(structured.count).toBe(1);
-    expect(structured.images[0].title).toBe("Awwwards Dashboard");
-  });
-
-  it("handles error in design_search_images", async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("Serper network error"));
-
-    const res = await client.callTool({
-      name: "design_search_images",
-      arguments: { query: "dashboard", num: 5 },
-    });
-
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
-    expect(text).toContain("Serper network error");
-  });
-
-  it("handles non-Error thrown in design_search_images", async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue("string-rejection");
-
-    const res = await client.callTool({
-      name: "design_search_images",
-      arguments: { query: "dashboard", num: 5 },
-    });
-
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
-    expect(text).toBe("Error: string-rejection");
+    expect(toolNames).toEqual([
+      "design_search_references",
+      "design_search_styles",
+      "design_extract_tokens",
+      "design_prepare_references",
+    ]);
   });
 
   it("executes design_search_references tool successfully", async () => {
@@ -831,12 +730,6 @@ describe("Server request routing & tool execution via MCP client", () => {
       status: 200,
       json: async () => ({}),
     } as unknown as Response);
-
-    const imgRes = await client.callTool({
-      name: "design_search_images",
-      arguments: { query: "missing-images", num: 5 },
-    });
-    expect((imgRes as any).structuredContent.count).toBe(0);
 
     const refRes = await client.callTool({
       name: "design_search_references",
