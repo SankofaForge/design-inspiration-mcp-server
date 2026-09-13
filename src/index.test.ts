@@ -23,6 +23,12 @@ import {
   server,
 } from "./index.js";
 
+interface ToolCallResultWithStructured<T = Record<string, unknown>> {
+  content?: Array<{ type: string; text?: string; [key: string]: unknown }>;
+  structuredContent?: T;
+  isError?: boolean;
+}
+
 vi.mock("node:child_process", () => ({
   execFile: vi.fn(),
 }));
@@ -282,9 +288,9 @@ describe("runDembrandt", () => {
 
   it("resolves stdout on successful execution", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback: any) => {
-      callback(null, '{"colors":{"primary":"#fff"}}', "");
-      return {} as any;
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: (error: Error | null, stdout?: string, stderr?: string) => void) => {
+      callback?.(null, '{"colors":{"primary":"#fff"}}', "");
+      return {} as unknown as childProcess.ChildProcess;
     });
 
     const result = await runDembrandt("https://awwwards.com/sites/test", ["--mobile"]);
@@ -293,11 +299,11 @@ describe("runDembrandt", () => {
 
   it("rejects with timeout error when killed", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback: any) => {
-      const error: any = new Error("Command failed");
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: (error: Error | null, stdout?: string, stderr?: string) => void) => {
+      const error = new Error("Command failed") as Error & { killed?: boolean };
       error.killed = true;
-      callback(error, "", "");
-      return {} as any;
+      callback?.(error, "", "");
+      return {} as unknown as childProcess.ChildProcess;
     });
 
     await expect(runDembrandt("https://awwwards.com/sites/test", [])).rejects.toThrow(
@@ -307,10 +313,10 @@ describe("runDembrandt", () => {
 
   it("rejects with unresolved name error", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback: any) => {
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: (error: Error | null, stdout?: string, stderr?: string) => void) => {
       const error = new Error("net::ERR_NAME_NOT_RESOLVED");
-      callback(error, "", "net::ERR_NAME_NOT_RESOLVED");
-      return {} as any;
+      callback?.(error, "", "net::ERR_NAME_NOT_RESOLVED");
+      return {} as unknown as childProcess.ChildProcess;
     });
 
     await expect(runDembrandt("https://awwwards.com/sites/test", [])).rejects.toThrow(
@@ -320,10 +326,10 @@ describe("runDembrandt", () => {
 
   it("rejects with connection refused error", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback: any) => {
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: (error: Error | null, stdout?: string, stderr?: string) => void) => {
       const error = new Error("net::ERR_CONNECTION_REFUSED");
-      callback(error, "", "net::ERR_CONNECTION_REFUSED");
-      return {} as any;
+      callback?.(error, "", "net::ERR_CONNECTION_REFUSED");
+      return {} as unknown as childProcess.ChildProcess;
     });
 
     await expect(runDembrandt("https://awwwards.com/sites/test", [])).rejects.toThrow(
@@ -333,10 +339,10 @@ describe("runDembrandt", () => {
 
   it("rejects with general error message when stderr is empty", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback: any) => {
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: (error: Error | null, stdout?: string, stderr?: string) => void) => {
       const error = new Error("General crash");
-      callback(error, "", "");
-      return {} as any;
+      callback?.(error, "", "");
+      return {} as unknown as childProcess.ChildProcess;
     });
 
     await expect(runDembrandt("https://awwwards.com/sites/test", [])).rejects.toThrow(
@@ -561,7 +567,7 @@ describe("Server request routing & tool execution via MCP client", () => {
       arguments: { query: "design system", num: 5 },
     });
 
-    const structured = (res as any).structuredContent;
+    const structured = (res as ToolCallResultWithStructured<{ count: number; results: Array<{ title: string }> }>).structuredContent!;
     expect(structured.count).toBe(1);
     expect(structured.results[0].title).toBe("Awwwards Reference");
   });
@@ -574,7 +580,7 @@ describe("Server request routing & tool execution via MCP client", () => {
       arguments: { query: "design system", num: 5 },
     });
 
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("Serper search failed");
   });
 
@@ -619,7 +625,7 @@ describe("Server request routing & tool execution via MCP client", () => {
         arguments: { style: "brutalist", type, num: 5 },
       });
 
-      const structured = (res as any).structuredContent;
+      const structured = (res as ToolCallResultWithStructured<{ style: string; type: string; images: unknown[]; references: unknown[] }>).structuredContent!;
       expect(structured.style).toBe("brutalist");
       expect(structured.type).toBe(type);
       expect(structured.images).toHaveLength(1);
@@ -662,7 +668,7 @@ describe("Server request routing & tool execution via MCP client", () => {
       arguments: { style: "maximalist", type: "general", num: 10 },
     });
 
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("...(truncated)");
   });
 
@@ -674,15 +680,15 @@ describe("Server request routing & tool execution via MCP client", () => {
       arguments: { style: "glassmorphism", type: "general" },
     });
 
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("Styles search error");
   });
 
   it("executes design_extract_tokens successfully", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback: any) => {
-      callback(null, JSON.stringify({ colors: { bg: "#000" }, spacing: { lg: "24px" } }), "");
-      return {} as any;
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: (error: Error | null, stdout?: string, stderr?: string) => void) => {
+      callback?.(null, JSON.stringify({ colors: { bg: "#000" }, spacing: { lg: "24px" } }), "");
+      return {} as unknown as childProcess.ChildProcess;
     });
 
     const res = await client.callTool({
@@ -690,7 +696,7 @@ describe("Server request routing & tool execution via MCP client", () => {
       arguments: { url: "https://www.awwwards.com/sites/portfolio", dark_mode: true, mobile: true },
     });
 
-    const structured = (res as any).structuredContent;
+    const structured = (res as ToolCallResultWithStructured<{ dark_mode: boolean; mobile: boolean; tokens: { colors: { bg: string } } }>).structuredContent!;
     expect(structured.dark_mode).toBe(true);
     expect(structured.mobile).toBe(true);
     expect(structured.tokens.colors.bg).toBe("#000");
@@ -698,9 +704,9 @@ describe("Server request routing & tool execution via MCP client", () => {
 
   it("handles error in design_extract_tokens", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback: any) => {
-      callback(new Error("dembrandt binary missing"), "", "");
-      return {} as any;
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: (error: Error | null, stdout?: string, stderr?: string) => void) => {
+      callback?.(new Error("dembrandt binary missing"), "", "");
+      return {} as unknown as childProcess.ChildProcess;
     });
 
     const res = await client.callTool({
@@ -708,7 +714,7 @@ describe("Server request routing & tool execution via MCP client", () => {
       arguments: { url: "https://www.awwwards.com/sites/portfolio" },
     });
 
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("dembrandt failed: dembrandt binary missing");
   });
 
@@ -720,7 +726,7 @@ describe("Server request routing & tool execution via MCP client", () => {
       arguments: { query: "design system", num: 5 },
     });
 
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toBe("Error: search-failure-string");
   });
 
@@ -735,14 +741,14 @@ describe("Server request routing & tool execution via MCP client", () => {
       name: "design_search_references",
       arguments: { query: "missing-refs", num: 5 },
     });
-    expect((refRes as any).structuredContent.count).toBe(0);
+    expect((refRes as ToolCallResultWithStructured<{ count: number }>).structuredContent?.count).toBe(0);
 
     const styleRes = await client.callTool({
       name: "design_search_styles",
       arguments: { style: "missing-styles", type: "general", num: 5 },
     });
-    expect((styleRes as any).structuredContent.images).toEqual([]);
-    expect((styleRes as any).structuredContent.references).toEqual([]);
+    expect((styleRes as ToolCallResultWithStructured<{ images: unknown[]; references: unknown[] }>).structuredContent?.images).toEqual([]);
+    expect((styleRes as ToolCallResultWithStructured<{ images: unknown[]; references: unknown[] }>).structuredContent?.references).toEqual([]);
   });
 
   it("handles non-Error thrown in design_search_styles", async () => {
@@ -753,7 +759,7 @@ describe("Server request routing & tool execution via MCP client", () => {
       arguments: { style: "glassmorphism", type: "general" },
     });
 
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toBe("Error: styles-string-error");
   });
 
@@ -768,7 +774,7 @@ describe("Server request routing & tool execution via MCP client", () => {
       arguments: { url: "https://www.awwwards.com/sites/portfolio" },
     });
 
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toBe("Error: string-dembrandt-error");
   });
 
@@ -788,10 +794,10 @@ describe("Server request routing & tool execution via MCP client", () => {
       },
     });
 
-    const structured = (res as any).structuredContent;
+    const structured = (res as ToolCallResultWithStructured<{ count: number; assetPlan: unknown[] }>).structuredContent!;
     expect(structured.count).toBe(1);
     expect(structured.assetPlan).toHaveLength(0);
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("Prepared 1 reference.");
     expect(text).not.toContain("## Asset plan");
   });
@@ -811,12 +817,12 @@ describe("Server request routing & tool execution via MCP client", () => {
       },
     });
 
-    const structured = (res as any).structuredContent;
+    const structured = (res as ToolCallResultWithStructured<{ count: number; references: Array<{ url: string }>; assetPlan: Array<{ route: string; outputs: string[] }> }>).structuredContent!;
     expect(structured.count).toBe(1);
     expect(structured.references[0].url).toBe("https://www.awwwards.com/sites/ref-3d");
     expect(structured.assetPlan[0].route).toBe("blender");
     expect(structured.assetPlan[0].outputs).toEqual(["glb", "png"]);
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("Prepared 1 reference.");
     expect(text).toContain("## Asset plan");
   });
@@ -860,12 +866,12 @@ describe("Server request routing & tool execution via MCP client", () => {
       },
     });
 
-    const structured = (res as any).structuredContent;
+    const structured = (res as ToolCallResultWithStructured<{ count: number; assetPlan: Array<{ route: string }> }>).structuredContent!;
     expect(structured.count).toBe(2);
     expect(structured.assetPlan).toHaveLength(2);
     expect(structured.assetPlan[0].route).toBe("lottie-creator");
     expect(structured.assetPlan[1].route).toBe("svgator");
-    const text = ((res as any).content[0] as { type: "text"; text: string }).text;
+    const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("Prepared 2 references.");
   });
 });
