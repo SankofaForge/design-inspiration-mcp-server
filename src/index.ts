@@ -308,11 +308,11 @@ server.registerTool("design_search_styles", {
 // --- design_extract_tokens tool ---
 
 export interface DesignTokens {
-  colors?: Record<string, unknown>;
-  typography?: Record<string, unknown>;
-  spacing?: Record<string, unknown>;
-  borders?: Record<string, unknown>;
-  shadows?: Record<string, unknown>;
+  colors?: Record<string, string | Record<string, string>>;
+  typography?: Record<string, string | number | Record<string, string | number>>;
+  spacing?: Record<string, string | number>;
+  borders?: Record<string, string | Record<string, string>>;
+  shadows?: Record<string, string | string[]>;
   [key: string]: unknown;
 }
 
@@ -545,13 +545,13 @@ server.registerTool("design_prepare_references", {
       ? reference.assetRequirements
       : reference.requires3d
         ? [{
-            id: `${reference.captureName}-3d`,
-            kind: "3d-render" as const,
-            role: "3D asset indicated by the selected reference",
-            preferredFormats: ["glb", "png"] as const,
-            delivery: "web" as const,
-            prompt: reference.role,
-          }]
+          id: `${reference.captureName}-3d`,
+          kind: "3d-render" as const,
+          role: "3D asset indicated by the selected reference",
+          preferredFormats: ["glb", "png"] as const,
+          delivery: "web" as const,
+          prompt: reference.role,
+        }]
         : [];
     return { ...reference, url: url.toString(), assetRequirements };
   });
@@ -571,7 +571,7 @@ server.registerTool("design_prepare_references", {
   const markdown = [
     "# Prepared design references", "", `Prepared ${references.length} reference${references.length === 1 ? "" : "s"}.`, "",
     ...references.map((reference) => `- [${reference.captureName}](${reference.url}) — ${reference.role}; capture${reference.extractTokens ? ", extract tokens" : ""}${reference.assetRequirements.length ? `, ${reference.assetRequirements.length} asset requirement(s)` : ""}.`),
-    ...(assetPlan.length ? ["", "## Asset plan", "", ...assetPlan.map((asset) => `- \`${asset.assetId}\` (${asset.asset.kind}) → ${asset.route}; outputs: ${asset.outputs.join(", ")}.`)]: []),
+    ...(assetPlan.length ? ["", "## Asset plan", "", ...assetPlan.map((asset) => `- \`${asset.assetId}\` (${asset.asset.kind}) → ${asset.route}; outputs: ${asset.outputs.join(", ")}.`)] : []),
   ].join("\n");
   return { content: [{ type: "text" as const, text: markdown }], structuredContent: { references, count: references.length, assetPlan } };
 });
