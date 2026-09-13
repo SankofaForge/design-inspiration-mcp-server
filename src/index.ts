@@ -308,11 +308,11 @@ server.registerTool("design_search_styles", {
 // --- design_extract_tokens tool ---
 
 export interface DesignTokens {
-  colors?: Record<string, string | Record<string, string>>;
-  typography?: Record<string, string | number | Record<string, string | number>>;
-  spacing?: Record<string, string | number>;
-  borders?: Record<string, string | Record<string, string>>;
-  shadows?: Record<string, string | string[]>;
+  colors?: Record<string, string | Record<string, string> | null>;
+  typography?: Record<string, string | number | Record<string, string | number> | null>;
+  spacing?: Record<string, string | number | Record<string, string | number> | null>;
+  borders?: Record<string, string | Record<string, string> | null>;
+  shadows?: Record<string, string | string[] | null>;
   [key: string]: unknown;
 }
 
