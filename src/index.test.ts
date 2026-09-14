@@ -24,7 +24,7 @@ import {
 } from "./index.js";
 
 interface ToolCallResultWithStructured<T = Record<string, unknown>> {
-  content?: Array<{ type: string; text?: string; [key: string]: unknown }>;
+  content?: Array<{ type: string; text?: string;[key: string]: unknown }>;
   structuredContent?: T;
   isError?: boolean;
 }
@@ -288,7 +288,7 @@ describe("runDembrandt", () => {
 
   it("resolves stdout on successful execution", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: any) => {
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
       callback?.(null, '{"colors":{"primary":"#fff"}}', "");
       return {} as unknown as childProcess.ChildProcess;
     });
@@ -299,9 +299,8 @@ describe("runDembrandt", () => {
 
   it("rejects with timeout error when killed", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: any) => {
-      const error = new Error("Command failed") as Error & { killed?: boolean };
-      error.killed = true;
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+      const error = Object.assign(new Error("Command failed"), { killed: true, cmd: "dembrandt" }) as childProcess.ExecException;
       callback?.(error, "", "");
       return {} as unknown as childProcess.ChildProcess;
     });
@@ -313,8 +312,8 @@ describe("runDembrandt", () => {
 
   it("rejects with unresolved name error", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: any) => {
-      const error = new Error("net::ERR_NAME_NOT_RESOLVED");
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+      const error = Object.assign(new Error("net::ERR_NAME_NOT_RESOLVED"), { cmd: "dembrandt" }) as childProcess.ExecException;
       callback?.(error, "", "net::ERR_NAME_NOT_RESOLVED");
       return {} as unknown as childProcess.ChildProcess;
     });
@@ -326,8 +325,8 @@ describe("runDembrandt", () => {
 
   it("rejects with connection refused error", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: any) => {
-      const error = new Error("net::ERR_CONNECTION_REFUSED");
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+      const error = Object.assign(new Error("net::ERR_CONNECTION_REFUSED"), { cmd: "dembrandt" }) as childProcess.ExecException;
       callback?.(error, "", "net::ERR_CONNECTION_REFUSED");
       return {} as unknown as childProcess.ChildProcess;
     });
@@ -339,8 +338,8 @@ describe("runDembrandt", () => {
 
   it("rejects with general error message when stderr is empty", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: any) => {
-      const error = new Error("General crash");
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+      const error = Object.assign(new Error("General crash"), { cmd: "dembrandt" }) as childProcess.ExecException;
       callback?.(error, "", "");
       return {} as unknown as childProcess.ChildProcess;
     });
@@ -686,7 +685,7 @@ describe("Server request routing & tool execution via MCP client", () => {
 
   it("executes design_extract_tokens successfully", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: any) => {
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
       callback?.(null, JSON.stringify({ colors: { bg: "#000" }, spacing: { lg: "24px" } }), "");
       return {} as unknown as childProcess.ChildProcess;
     });
@@ -704,8 +703,9 @@ describe("Server request routing & tool execution via MCP client", () => {
 
   it("handles error in design_extract_tokens", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
-    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback?: any) => {
-      callback?.(new Error("dembrandt binary missing"), "", "");
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+      const error = Object.assign(new Error("dembrandt binary missing"), { cmd: "dembrandt" }) as childProcess.ExecException;
+      callback?.(error, "", "");
       return {} as unknown as childProcess.ChildProcess;
     });
 
@@ -881,7 +881,7 @@ describe("main entrypoint execution", () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
   });
 
   afterEach(() => {
