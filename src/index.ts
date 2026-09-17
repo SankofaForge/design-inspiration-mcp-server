@@ -34,7 +34,7 @@ export function isAwwwardsUrl(value: string): boolean {
 
 export async function serperRequest<T>(
   endpoint: string,
-  body: Record<string, unknown>
+  body: Record<string, string | number | boolean | null | undefined>
 ): Promise<T> {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) {
@@ -76,7 +76,7 @@ export interface SerperImage {
 
 export interface SerperImagesResponse {
   images: SerperImage[];
-  searchParameters?: Record<string, unknown>;
+  searchParameters?: Record<string, string | number | boolean | null>;
 }
 
 export interface SerperOrganicResult {
@@ -88,7 +88,7 @@ export interface SerperOrganicResult {
 
 export interface SerperSearchResponse {
   organic: SerperOrganicResult[];
-  searchParameters?: Record<string, unknown>;
+  searchParameters?: Record<string, string | number | boolean | null>;
 }
 
 export function filterAwwwardsImages(images: SerperImage[]): SerperImage[] {
@@ -307,13 +307,19 @@ server.registerTool("design_search_styles", {
 
 // --- design_extract_tokens tool ---
 
+export type TokenScalar = string | number | boolean | null;
+export type TokenValue =
+  | TokenScalar
+  | TokenScalar[]
+  | Record<string, TokenScalar | Record<string, TokenScalar>>;
+
 export interface DesignTokens {
   colors?: Record<string, string | Record<string, string> | null>;
   typography?: Record<string, string | number | Record<string, string | number> | null>;
   spacing?: Record<string, string | number | Record<string, string | number> | null>;
   borders?: Record<string, string | Record<string, string> | null>;
   shadows?: Record<string, string | string[] | null>;
-  [key: string]: unknown;
+  [key: string]: TokenValue | undefined;
 }
 
 export function runDembrandt(url: string, flags: string[]): Promise<string> {
@@ -389,7 +395,7 @@ export function formatTokens(tokens: DesignTokens, url: string): string {
     if (handled.has(key) || value === undefined || value === null) continue;
     lines.push(`## ${key.charAt(0).toUpperCase() + key.slice(1)}`, "");
     if (typeof value === "object") {
-      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      for (const [k, v] of Object.entries(value as Record<string, TokenValue>)) {
         lines.push(`- **${k}**: \`${typeof v === "string" ? v : JSON.stringify(v)}\``);
       }
     } else {
