@@ -311,7 +311,7 @@ export type TokenScalar = string | number | boolean | null;
 export type TokenValue =
   | TokenScalar
   | TokenScalar[]
-  | Record<string, TokenScalar | Record<string, TokenScalar>>;
+  | Record<string, TokenScalar | string[] | Record<string, TokenScalar>>;
 
 export interface DesignTokens {
   colors?: Record<string, string | Record<string, string> | null>;
