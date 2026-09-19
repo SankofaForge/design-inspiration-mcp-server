@@ -171,8 +171,8 @@ describe("Awwwards source policy & helpers", () => {
     expect(
       filterSotdImages(
         [
-          { imageUrl: "https://cdn.example.com/valid.jpg", link: "https://[invalid" },
-          { imageUrl: "https://cdn.example.com/other.jpg", link: "https://www.awwwards.com/sites/other" },
+          { imageUrl: "https://cdn.example.com/valid.jpg", link: "https://[invalid", title: "Invalid", source: "Example" },
+          { imageUrl: "https://cdn.example.com/other.jpg", link: "https://www.awwwards.com/sites/other", title: "Other", source: "Awwwards" },
         ],
         new Set(["https://www.awwwards.com/sites/selected"])
       )
