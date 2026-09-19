@@ -5,6 +5,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   AWWWARDS_HOST,
   AWWWARDS_FETCH_TIMEOUT_MS,
+  AWWWARDS_MAX_HTML_BYTES,
   CHARACTER_LIMIT,
   DESIGN_SITES,
   ExtractTokensInputSchema,
@@ -107,6 +108,35 @@ describe("Awwwards source policy & helpers", () => {
     );
   });
 
+  it("fails closed on fetch errors, redirects, oversized pages, and aborts", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+    } as unknown as Response);
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/http-error")).rejects.toThrow("HTTP 503");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      url: "https://example.com/redirected",
+      text: async () => VERIFIED_SOTD_HTML,
+    } as unknown as Response);
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/redirect")).rejects.toThrow("redirected outside Awwwards");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "x".repeat(AWWWARDS_MAX_HTML_BYTES + 1),
+    } as unknown as Response);
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/oversized")).rejects.toThrow("exceeded");
+
+    globalThis.fetch = vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError"));
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/aborted")).rejects.toThrow("timed out");
+
+    globalThis.fetch = vi.fn().mockRejectedValue("network failure");
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/unknown-error")).rejects.toThrow("verification failed");
+  });
+
   it("uses a bounded award verification timeout", () => {
     expect(AWWWARDS_FETCH_TIMEOUT_MS).toBe(15_000);
   });
@@ -134,6 +164,18 @@ describe("Awwwards source policy & helpers", () => {
         },
       ])
     ).toHaveLength(1);
+  });
+
+  it("drops style images with malformed or unselected page links", () => {
+    expect(
+      filterSotdImages(
+        [
+          { imageUrl: "https://cdn.example.com/valid.jpg", link: "https://[invalid" },
+          { imageUrl: "https://cdn.example.com/other.jpg", link: "https://www.awwwards.com/sites/other" },
+        ],
+        new Set(["https://www.awwwards.com/sites/selected"])
+      )
+    ).toEqual([]);
   });
 
   it("filters search responses to Awwwards page links", () => {
