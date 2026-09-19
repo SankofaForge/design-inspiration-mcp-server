@@ -18,6 +18,7 @@ import {
   classifyAwardTier,
   filterAwwwardsImages,
   filterAwwwardsResults,
+  filterSotdImages,
   filterSotdResults,
   formatSearchResults,
   formatTokens,
