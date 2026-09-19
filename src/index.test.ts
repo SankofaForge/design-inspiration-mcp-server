@@ -155,6 +155,17 @@ describe("Awwwards source policy & helpers", () => {
     await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/unknown-error")).rejects.toThrow("verification failed");
   });
 
+  it("aborts a fetch when the verification timeout expires", async () => {
+    vi.useFakeTimers();
+    globalThis.fetch = vi.fn((_url, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    })) as unknown as typeof fetch;
+    const verification = verifyAwwwardsSotd("https://www.awwwards.com/sites/slow");
+    await vi.advanceTimersByTimeAsync(AWWWARDS_FETCH_TIMEOUT_MS);
+    await expect(verification).rejects.toThrow("timed out");
+    vi.useRealTimers();
+  });
+
   it("uses a bounded award verification timeout", () => {
     expect(AWWWARDS_FETCH_TIMEOUT_MS).toBe(15_000);
   });
