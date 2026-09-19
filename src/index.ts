@@ -9,12 +9,18 @@ import { z } from "zod";
 export const SERPER_API_URL = "https://google.serper.dev";
 export const CHARACTER_LIMIT = 25000;
 export const AWWWARDS_HOST = "awwwards.com";
+export const SOTD_QUERY = '"Site of the Day"';
 
 export const DESIGN_SITES = {
   awwwards: "awwwards.com",
 } as const;
 
 export type DesignSite = keyof typeof DESIGN_SITES;
+
+export type AwardTier = "sotd" | "honorable-mention" | "nominee" | "unknown";
+export const AWWWARDS_FETCH_TIMEOUT_MS = 15_000;
+export const AWWWARDS_MAX_HTML_BYTES = 5 * 1024 * 1024;
+const AWARD_DATE_PATTERN = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}\b/i;
 
 export function normalizeHttpUrl(value: string): string {
   return /^https?:\/\//i.test(value) ? value : `https://${value}`;
@@ -29,6 +35,118 @@ export function isAwwwardsUrl(value: string): boolean {
     );
   } catch {
     return false;
+  }
+}
+
+export function isAwwwardsSiteUrl(value: string): boolean {
+  if (!isAwwwardsUrl(value)) return false;
+  try {
+    return new URL(normalizeHttpUrl(value)).pathname.startsWith("/sites/");
+  } catch {
+    return false;
+  }
+}
+
+export function canonicalizeUrl(value: string): string {
+  const url = new URL(normalizeHttpUrl(value));
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
+function stripHtml(value: string): string {
+  return decodeHtmlEntities(
+    value
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+  ).replace(/\s+/g, " ").trim();
+}
+
+function extractHtmlTitle(html: string): string {
+  const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
+  const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']*)["']/i)?.[1];
+  return stripHtml(title ?? ogTitle ?? "");
+}
+
+function extractAwardHeading(html: string): string {
+  const headings = [...html.matchAll(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi)]
+    .map((match) => stripHtml(match[1]))
+    .filter((heading) => /site\s+of\s+the\s+day|honorable\s+mention|nominee/i.test(heading));
+  return headings[0] ?? "";
+}
+
+export interface AwardVerification {
+  tier: AwardTier;
+  awardDate?: string;
+  evidence: string;
+}
+
+export function classifyAwardPage(html: string): AwardVerification {
+  const title = extractHtmlTitle(html);
+  const heading = extractAwardHeading(html);
+  const evidence = [title, heading].filter(Boolean).join(" | ");
+  const normalized = evidence.replace(/\s+/g, " ").toLowerCase();
+  if (/\bhonorable\s+mention\b/.test(normalized)) {
+    return { tier: "honorable-mention", evidence };
+  }
+  if (/\bnominee\b/.test(normalized)) {
+    return { tier: "nominee", evidence };
+  }
+  const hasSotdMarker = /\bawwwards\s+sotd\b|\bsite\s+of\s+the\s+day\b/.test(normalized);
+  const awardDate = evidence.match(AWARD_DATE_PATTERN)?.[0];
+  if (hasSotdMarker && awardDate) {
+    return { tier: "sotd", awardDate, evidence };
+  }
+  return { tier: "unknown", evidence };
+}
+
+export async function verifyAwwwardsSotd(value: string): Promise<AwardVerification & { url: string }> {
+  if (!isAwwwardsSiteUrl(value)) {
+    throw new Error(`Awwwards award verification requires an Awwwards site URL: ${value}`);
+  }
+
+  const url = canonicalizeUrl(value);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AWWWARDS_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "design-inspiration-mcp-server/1.0" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Awwwards award verification returned HTTP ${response.status}`);
+    }
+    if (response.url && !isAwwwardsSiteUrl(response.url)) {
+      throw new Error(`Awwwards award verification redirected outside Awwwards: ${response.url}`);
+    }
+    const html = await response.text();
+    if (html.length > AWWWARDS_MAX_HTML_BYTES) {
+      throw new Error(`Awwwards award verification response exceeded ${AWWWARDS_MAX_HTML_BYTES} bytes: ${url}`);
+    }
+    const verification = classifyAwardPage(html);
+    if (verification.tier !== "sotd") {
+      throw new Error(
+        `Awwwards page is not a verified Site of the Day winner (${verification.tier}): ${url}`
+      );
+    }
+    return { ...verification, url };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`Awwwards award verification timed out after ${AWWWARDS_FETCH_TIMEOUT_MS / 1000}s: ${url}`);
+    }
+    if (error instanceof Error) throw error;
+    throw new Error(`Awwwards award verification failed: ${String(error)}`);
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -99,10 +217,42 @@ export function filterAwwwardsResults(results: SerperOrganicResult[]): SerperOrg
   return results.filter((result) => isAwwwardsUrl(result.link));
 }
 
+export function classifyAwardTier(result: Pick<SerperOrganicResult, "title" | "snippet">): AwardTier {
+  const text = `${result.title} ${result.snippet}`.replace(/\s+/g, " ").toLowerCase();
+  if (/\bhonorable\s+mention\b/.test(text)) return "honorable-mention";
+  if (/\bnominee\b/.test(text)) return "nominee";
+  const hasSotdMarker = /\bsite\s+of\s+the\s+day\b|\bsotd\b/.test(text);
+  const hasAwardDate = AWARD_DATE_PATTERN.test(text);
+  if (hasSotdMarker && hasAwardDate) return "sotd";
+  return "unknown";
+}
+
+export function filterSotdResults(results: SerperOrganicResult[]): SerperOrganicResult[] {
+  return filterAwwwardsResults(results).filter(
+    (result) => isAwwwardsSiteUrl(result.link) && classifyAwardTier(result) === "sotd"
+  );
+}
+
+export function filterSotdImages(images: SerperImage[], resultLinks: Set<string>): SerperImage[] {
+  return filterAwwwardsImages(images).filter((image) => {
+    try {
+      return resultLinks.has(canonicalizeUrl(image.link));
+    } catch {
+      return false;
+    }
+  });
+}
+
 export function formatSearchResults(results: SerperOrganicResult[], query: string): string {
   if (!results.length) return `No results found for "${query}".`;
 
-  const lines = [`# Design References: "${query}"`, "", `Found ${results.length} results`, ""];
+  const lines = [
+    `# Design References: "${query}"`,
+    "",
+    "Award filter: Site of the Day",
+    `Found ${results.length} results`,
+    "",
+  ];
   for (const r of results) {
     lines.push(`## ${r.title}`);
     lines.push(`${r.snippet}`);
@@ -117,8 +267,9 @@ export function formatSearchResults(results: SerperOrganicResult[], query: strin
   return result;
 }
 
-export function buildSiteQuery(query: string): string {
-  return `${query} (site:${AWWWARDS_HOST})`;
+export function buildSiteQuery(query: string, awardTier: "sotd" = "sotd"): string {
+  if (awardTier !== "sotd") throw new Error(`Unsupported Awwwards award tier: ${awardTier}`);
+  return `${query} ${SOTD_QUERY} (site:${AWWWARDS_HOST}/sites)`;
 }
 
 export const server = new McpServer({
@@ -142,6 +293,10 @@ export const SearchReferencesInputSchema = z
       .max(20)
       .default(10)
       .describe("Number of results to return (1-20, default: 10)"),
+    awardTier: z
+      .literal("sotd")
+      .default("sotd")
+      .describe("Only current or past Site of the Day winners are eligible"),
   })
   .strict();
 
@@ -149,7 +304,7 @@ type SearchReferencesInput = z.infer<typeof SearchReferencesInputSchema>;
 
 server.registerTool("design_search_references", {
   title: "Search design references",
-  description: `Search Awwwards.com for design references. Returns article titles, snippets, and Awwwards page links. Use this for case studies, write-ups, or design system documentation.`,
+  description: `Search Awwwards.com for current or past Site of the Day winners. Honorable Mentions, nominees, and unverified Awwwards pages are excluded.`,
   inputSchema: SearchReferencesInputSchema,
   annotations: {
     readOnlyHint: true,
@@ -159,25 +314,27 @@ server.registerTool("design_search_references", {
   },
 }, async (params: SearchReferencesInput) => {
   try {
-    const siteQuery = buildSiteQuery(params.query);
+    const siteQuery = buildSiteQuery(params.query, params.awardTier);
     const data = await serperRequest<SerperSearchResponse>("/search", {
       q: siteQuery,
       num: params.num,
     });
 
-    const results = filterAwwwardsResults(data.organic || []);
+    const results = filterSotdResults(data.organic || []);
     const text = formatSearchResults(results, params.query);
 
     return {
       content: [{ type: "text" as const, text }],
       structuredContent: {
         query: params.query,
+        awardTier: params.awardTier,
         count: results.length,
         results: results.map((r) => ({
           title: r.title,
           link: r.link,
           snippet: r.snippet,
           position: r.position,
+          awardTier: classifyAwardTier(r),
         })),
       },
     };
@@ -213,6 +370,10 @@ export const SearchStyleInputSchema = z
       .max(20)
       .default(10)
       .describe("Number of results (1-20, default: 10)"),
+    awardTier: z
+      .literal("sotd")
+      .default("sotd")
+      .describe("Only current or past Site of the Day winners are eligible"),
   })
   .strict();
 
@@ -220,7 +381,7 @@ type SearchStyleInput = z.infer<typeof SearchStyleInputSchema>;
 
 server.registerTool("design_search_styles", {
   title: "Search design styles",
-  description: `Search Awwwards.com for a specific aesthetic direction. Search color palettes, typography, layouts, or animation references. The tool returns image and web results.`,
+  description: `Search current or past Awwwards Site of the Day winners for a specific aesthetic direction. Honorable Mentions, nominees, and unverified pages are excluded from both image and web results.`,
   inputSchema: SearchStyleInputSchema,
   annotations: {
     readOnlyHint: true,
@@ -239,17 +400,23 @@ server.registerTool("design_search_styles", {
     };
 
     const query = `${params.style} ${typeKeywords[params.type]} UI design inspiration`;
-    const fullQuery = buildSiteQuery(query);
+    const fullQuery = buildSiteQuery(query, params.awardTier);
 
     const [imageData, searchData] = await Promise.all([
       serperRequest<SerperImagesResponse>("/images", { q: fullQuery, num: params.num }),
       serperRequest<SerperSearchResponse>("/search", { q: fullQuery, num: params.num }),
     ]);
 
-    const images = filterAwwwardsImages(imageData.images || []);
-    const results = filterAwwwardsResults(searchData.organic || []);
+    const results = filterSotdResults(searchData.organic || []);
+    const resultLinks = new Set(results.map((result) => canonicalizeUrl(result.link)));
+    const images = filterSotdImages(imageData.images || [], resultLinks);
 
-    const lines = [`# Style Inspiration: "${params.style}" (${params.type})`, ""];
+    const lines = [
+      `# Style Inspiration: "${params.style}" (${params.type})`,
+      "",
+      "Award filter: Site of the Day",
+      "",
+    ];
 
     if (images.length) {
       lines.push("## Images", "");
@@ -290,6 +457,7 @@ server.registerTool("design_search_styles", {
           title: r.title,
           link: r.link,
           snippet: r.snippet,
+          awardTier: classifyAwardTier(r),
         })),
       },
     };
@@ -517,7 +685,7 @@ export const PrepareReferencesInputSchema = z.object({
       .trim()
       .url()
       .refine((value) => /^https?:$/.test(new URL(value).protocol), "URL must use HTTP or HTTPS")
-      .refine(isAwwwardsUrl, "Reference URL must be on Awwwards.com"),
+      .refine(isAwwwardsSiteUrl, "Reference URL must be an Awwwards site page"),
     role: z.string().trim().min(1).max(120),
     captureName: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
     extractTokens: z.boolean().default(false),
@@ -540,27 +708,37 @@ type PrepareReferencesInput = z.infer<typeof PrepareReferencesInputSchema>;
 
 server.registerTool("design_prepare_references", {
   title: "Prepare design references",
-  description: "Validate and normalize selected references. Does not browse, capture, or invoke other MCPs.",
+  description: "Verify each selected Awwwards page is a dated Site of the Day winner, then normalize the references. Does not capture or invoke other MCPs.",
   inputSchema: PrepareReferencesInputSchema,
-  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
 }, async (params: PrepareReferencesInput) => {
-  const references = params.references.map((reference) => {
-    const url = new URL(reference.url);
-    url.hash = "";
-    const assetRequirements = reference.assetRequirements.length > 0
-      ? reference.assetRequirements
-      : reference.requires3d
-        ? [{
-          id: `${reference.captureName}-3d`,
-          kind: "3d-render" as const,
-          role: "3D asset indicated by the selected reference",
-          preferredFormats: ["glb", "png"] as const,
-          delivery: "web" as const,
-          prompt: reference.role,
-        }]
-        : [];
-    return { ...reference, url: url.toString(), assetRequirements };
-  });
+  const references = [];
+  try {
+    for (const reference of params.references) {
+      const awardVerification = await verifyAwwwardsSotd(reference.url);
+      const assetRequirements = reference.assetRequirements.length > 0
+        ? reference.assetRequirements
+        : reference.requires3d
+          ? [{
+            id: `${reference.captureName}-3d`,
+            kind: "3d-render" as const,
+            role: "3D asset indicated by the selected reference",
+            preferredFormats: ["glb", "png"] as const,
+            delivery: "web" as const,
+            prompt: reference.role,
+          }]
+          : [];
+      references.push({ ...reference, url: awardVerification.url, awardVerification, assetRequirements });
+    }
+  } catch (error) {
+    return {
+      isError: true,
+      content: [{
+        type: "text" as const,
+        text: error instanceof Error ? error.message : `Awwwards award verification failed: ${String(error)}`,
+      }],
+    };
+  }
   const assetPlan = references.flatMap((reference) => reference.assetRequirements.map((asset) => ({
     assetId: asset.id,
     route: asset.kind === "3d-model" || asset.kind === "3d-render"
@@ -576,7 +754,7 @@ server.registerTool("design_prepare_references", {
   })));
   const markdown = [
     "# Prepared design references", "", `Prepared ${references.length} reference${references.length === 1 ? "" : "s"}.`, "",
-    ...references.map((reference) => `- [${reference.captureName}](${reference.url}) — ${reference.role}; capture${reference.extractTokens ? ", extract tokens" : ""}${reference.assetRequirements.length ? `, ${reference.assetRequirements.length} asset requirement(s)` : ""}.`),
+    ...references.map((reference) => `- [${reference.captureName}](${reference.url}) — SOTD ${reference.awardVerification.awardDate}; ${reference.role}; capture${reference.extractTokens ? ", extract tokens" : ""}${reference.assetRequirements.length ? `, ${reference.assetRequirements.length} asset requirement(s)` : ""}.`),
     ...(assetPlan.length ? ["", "## Asset plan", "", ...assetPlan.map((asset) => `- \`${asset.assetId}\` (${asset.asset.kind}) → ${asset.route}; outputs: ${asset.outputs.join(", ")}.`)] : []),
   ].join("\n");
   return { content: [{ type: "text" as const, text: markdown }], structuredContent: { references, count: references.length, assetPlan } };

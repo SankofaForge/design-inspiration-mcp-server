@@ -16,9 +16,11 @@ The token extraction tool reads an Awwwards.com page and reports its colors, fon
 
 ## Tools
 
-**`design_search_references`** — Search Awwwards.com pages. Returns article titles, snippets, and links for case studies and design write-ups.
+**`design_search_references`** — Search current and past Awwwards Site of the Day winners. Honorable Mentions, nominees, and pages without an explicit, dated SOTD marker are filtered out.
 
-**`design_search_styles`** — Search Awwwards.com for a specific aesthetic direction. It combines image and web results for color, typography, layout, or animation queries.
+**`design_search_styles`** — Search SOTD winners for a specific aesthetic direction. It combines image and web results for color, typography, layout, or animation queries, and keeps images only when their page also passed the SOTD filter.
+
+**`design_prepare_references`** — Fetch each selected Awwwards page and verify its title or award heading identifies a dated Site of the Day win before normalizing the handoff. Honorable Mentions, nominees, missing award metadata, non-2xx responses, and timeouts fail the handoff.
 
 **`design_extract_tokens`** — Extract design tokens from an Awwwards.com page. Supports `dark_mode` and `mobile` flags. Requires `dembrandt` installed globally (`npm install -g dembrandt`).
 
@@ -69,7 +71,7 @@ npm run build
 
 ## How it actually works
 
-The search tools append `(site:awwwards.com)` to the query. They call Serper's `/images` or `/search` endpoint and filter returned page links to Awwwards.com.
+The search tools append the exact `"Site of the Day"` marker and `(site:awwwards.com/sites)` to each query. They call Serper's `/images` or `/search` endpoint, restrict links to Awwwards site pages, and reject results marked Honorable Mention, Nominee, or unknown. A result must include the award marker and a month/day/year signal before it can enter the shortlist.
 
 The `design_search_styles` tool runs both endpoints in parallel (`Promise.all`) to get images and articles for the same query.
 
@@ -92,6 +94,8 @@ Search for specific UI patterns, not generic terms:
 "good design"
 ```
 
+The SOTD filter is a quality floor, not a substitute for review. Shortlist at least three returned pages, check that each live URL still works, and capture the selected site before using its motion as implementation evidence. If the search returns no qualifying pages, report that gap instead of falling back to Honorable Mentions or nominees.
+
 You can download a returned image URL and have Claude view it directly:
 
 ```bash
@@ -106,7 +110,7 @@ MIT
 
 ## Declarative 3D asset workflow
 
-References can declare that a site concept needs 3D assets. `design_prepare_references` validates the requirement and returns an `assetPlan`; it does not create files, call Blender, or invoke another MCP.
+References can declare that a site concept needs 3D assets. `design_prepare_references` verifies the SOTD award, validates the asset requirement, and returns an `assetPlan`; it does not capture the site, create files, call Blender, or invoke another MCP.
 
 When an asset plan contains `route: "blender"`, the host application or agent must route that task to the available Blender MCP. This is host-level routing, not an invocation performed by this server. Preserve the asset ID and acceptance requirements in the Blender task.
 

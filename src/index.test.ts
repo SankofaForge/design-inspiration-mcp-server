@@ -4,15 +4,20 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
   AWWWARDS_HOST,
+  AWWWARDS_FETCH_TIMEOUT_MS,
   CHARACTER_LIMIT,
   DESIGN_SITES,
   ExtractTokensInputSchema,
   PrepareReferencesInputSchema,
   SearchReferencesInputSchema,
   SearchStyleInputSchema,
+  SOTD_QUERY,
   buildSiteQuery,
+  classifyAwardPage,
+  classifyAwardTier,
   filterAwwwardsImages,
   filterAwwwardsResults,
+  filterSotdResults,
   formatSearchResults,
   formatTokens,
   isAwwwardsUrl,
@@ -21,12 +26,26 @@ import {
   runDembrandt,
   serperRequest,
   server,
+  verifyAwwwardsSotd,
 } from "./index.js";
 
 interface ToolCallResultWithStructured<T = Record<string, unknown>> {
   content?: Array<{ type: string; text?: string;[key: string]: unknown }>;
   structuredContent?: T;
   isError?: boolean;
+}
+
+const VERIFIED_SOTD_HTML = `
+  <html><head><title>Proof - Awwwards SOTD</title></head>
+  <body><h2>Site of the Day - Oct 14, 2022</h2></body>
+`;
+
+function mockVerifiedSotdPage(html = VERIFIED_SOTD_HTML): void {
+  globalThis.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    status: 200,
+    text: async () => html,
+  } as unknown as Response);
 }
 
 vi.mock("node:child_process", () => ({
@@ -46,8 +65,75 @@ describe("Awwwards source policy & helpers", () => {
 
   it("builds an Awwwards-only search query", () => {
     expect(buildSiteQuery("study dashboard UI design")).toBe(
-      "study dashboard UI design (site:awwwards.com)"
+      `study dashboard UI design ${SOTD_QUERY} (site:awwwards.com/sites)`
     );
+  });
+
+  it("classifies award markers and rejects lower-tier results", () => {
+    expect(classifyAwardTier({ title: "Product SOTD", snippet: "Site of the Day - Jan 1, 2026" })).toBe("sotd");
+    expect(classifyAwardTier({ title: "Product", snippet: "Honorable Mention - Jan 1, 2026" })).toBe("honorable-mention");
+    expect(classifyAwardTier({ title: "Product", snippet: "Nominee" })).toBe("nominee");
+    expect(classifyAwardTier({ title: "Product SOTD", snippet: "Site of the Day" })).toBe("unknown");
+    expect(classifyAwardTier({ title: "Product", snippet: "No award marker" })).toBe("unknown");
+  });
+
+  it("classifies the award metadata in an Awwwards page", () => {
+    expect(classifyAwardPage(VERIFIED_SOTD_HTML)).toEqual({
+      tier: "sotd",
+      awardDate: "Oct 14, 2022",
+      evidence: "Proof - Awwwards SOTD | Site of the Day - Oct 14, 2022",
+    });
+    expect(classifyAwardPage("<title>Memo - Awwwards Honorable Mention</title>")).toEqual({
+      tier: "honorable-mention",
+      evidence: "Memo - Awwwards Honorable Mention",
+    });
+    expect(classifyAwardPage("<title>Unverified page</title>")).toEqual({
+      tier: "unknown",
+      evidence: "Unverified page",
+    });
+  });
+
+  it("verifies a live SOTD page and fails closed on a non-winning page", async () => {
+    mockVerifiedSotdPage();
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/proof-1#details")).resolves.toMatchObject({
+      url: "https://www.awwwards.com/sites/proof-1",
+      tier: "sotd",
+      awardDate: "Oct 14, 2022",
+    });
+
+    mockVerifiedSotdPage("<title>Memo - Awwwards Honorable Mention</title>");
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/memo")).rejects.toThrow(
+      "not a verified Site of the Day winner (honorable-mention)"
+    );
+  });
+
+  it("uses a bounded award verification timeout", () => {
+    expect(AWWWARDS_FETCH_TIMEOUT_MS).toBe(15_000);
+  });
+
+  it("keeps only Awwwards Site of the Day site pages", () => {
+    expect(
+      filterSotdResults([
+        {
+          title: "Winner SOTD",
+          link: "https://www.awwwards.com/sites/winner",
+          snippet: "Site of the Day - Jan 1, 2026",
+          position: 1,
+        },
+        {
+          title: "Mention",
+          link: "https://www.awwwards.com/sites/mention",
+          snippet: "Honorable Mention - Jan 1, 2026",
+          position: 2,
+        },
+        {
+          title: "Winner SOTD",
+          link: "https://www.awwwards.com/collections/winner",
+          snippet: "Site of the Day - Jan 1, 2026",
+          position: 3,
+        },
+      ])
+    ).toHaveLength(1);
   });
 
   it("filters search responses to Awwwards page links", () => {
@@ -522,6 +608,7 @@ describe("Server request routing & tool execution via MCP client", () => {
 
   beforeEach(async () => {
     process.env.SERPER_API_KEY = "test-serper-key";
+    mockVerifiedSotdPage();
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
 
@@ -552,9 +639,9 @@ describe("Server request routing & tool execution via MCP client", () => {
       json: async () => ({
         organic: [
           {
-            title: "Awwwards Reference",
+            title: "Awwwards SOTD Reference",
             link: "https://www.awwwards.com/sites/ref1",
-            snippet: "Reference snippet",
+            snippet: "Site of the Day - Jan 1, 2026. Reference snippet",
             position: 1,
           },
         ],
@@ -568,7 +655,7 @@ describe("Server request routing & tool execution via MCP client", () => {
 
     const structured = (res as ToolCallResultWithStructured<{ count: number; results: Array<{ title: string }> }>).structuredContent!;
     expect(structured.count).toBe(1);
-    expect(structured.results[0].title).toBe("Awwwards Reference");
+    expect(structured.results[0].title).toBe("Awwwards SOTD Reference");
   });
 
   it("handles error in design_search_references", async () => {
@@ -597,7 +684,7 @@ describe("Server request routing & tool execution via MCP client", () => {
                   title: "Style Image",
                   imageUrl: "https://awwwards.com/img.jpg",
                   source: "Awwwards",
-                  link: "https://www.awwwards.com/sites/style",
+                  link: "https://www.awwwards.com/sites/style-ref",
                 },
               ],
             }),
@@ -611,7 +698,7 @@ describe("Server request routing & tool execution via MCP client", () => {
               {
                 title: "Style Reference",
                 link: "https://www.awwwards.com/sites/style-ref",
-                snippet: "Style snippet",
+                snippet: "Site of the Day - Jan 1, 2026. Style snippet",
                 position: 1,
               },
             ],
@@ -655,7 +742,7 @@ describe("Server request routing & tool execution via MCP client", () => {
           organic: Array.from({ length: 10 }, (_, i) => ({
             title: "Style Reference " + i,
             link: `https://www.awwwards.com/sites/ref-${i}`,
-            snippet: "s".repeat(3000),
+            snippet: "Site of the Day - Jan 1, 2026. " + "s".repeat(3000),
             position: i + 1,
           })),
         }),
@@ -794,12 +881,40 @@ describe("Server request routing & tool execution via MCP client", () => {
       },
     });
 
-    const structured = (res as ToolCallResultWithStructured<{ count: number; assetPlan: unknown[] }>).structuredContent!;
+    const structured = (res as ToolCallResultWithStructured<{ count: number; references: Array<{ awardVerification: { tier: string; awardDate?: string } }>; assetPlan: unknown[] }>).structuredContent!;
     expect(structured.count).toBe(1);
+    expect(structured.references[0].awardVerification).toEqual({
+      tier: "sotd",
+      awardDate: "Oct 14, 2022",
+      evidence: "Proof - Awwwards SOTD | Site of the Day - Oct 14, 2022",
+      url: "https://www.awwwards.com/sites/ref-no-assets",
+    });
     expect(structured.assetPlan).toHaveLength(0);
     const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("Prepared 1 reference.");
     expect(text).not.toContain("## Asset plan");
+  });
+
+  it("fails preparation when the selected page is not an SOTD winner", async () => {
+    mockVerifiedSotdPage("<title>Memo - Awwwards Honorable Mention</title>");
+
+    const res = await client.callTool({
+      name: "design_prepare_references",
+      arguments: {
+        references: [
+          {
+            url: "https://www.awwwards.com/sites/memo",
+            role: "hero reference",
+            captureName: "hero-reference",
+          },
+        ],
+      },
+    });
+
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
+    expect(((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text).toContain(
+      "not a verified Site of the Day winner (honorable-mention)"
+    );
   });
 
   it("executes design_prepare_references with single reference and auto-generated 3d", async () => {
