@@ -725,6 +725,7 @@ server.registerTool("design_prepare_references", {
       isError: true,
       content: [{
         type: "text" as const,
+        /* c8 ignore next -- verifyAwwwardsSotd normalizes unknown throws to Error. */
         text: error instanceof Error ? error.message : `Awwwards award verification failed: ${String(error)}`,
       }],
     };

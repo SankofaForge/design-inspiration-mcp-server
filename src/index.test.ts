@@ -69,6 +69,9 @@ describe("Awwwards source policy & helpers", () => {
     expect(buildSiteQuery("study dashboard UI design")).toBe(
       `study dashboard UI design ${SOTD_QUERY} (site:awwwards.com/sites)`
     );
+    expect(() => buildSiteQuery("study dashboard UI design", "honorable-mention" as "sotd")).toThrow(
+      "Unsupported Awwwards award tier"
+    );
   });
 
   it("classifies award markers and rejects lower-tier results", () => {
@@ -96,6 +99,10 @@ describe("Awwwards source policy & helpers", () => {
     expect(classifyAwardPage("<title>Unverified page</title>")).toEqual({
       tier: "unknown",
       evidence: "Unverified page",
+    });
+    expect(classifyAwardPage('<meta property="og:title" content="Nominee - Awwwards">')).toEqual({
+      tier: "nominee",
+      evidence: "Nominee - Awwwards",
     });
   });
 
