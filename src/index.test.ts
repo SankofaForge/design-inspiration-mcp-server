@@ -104,6 +104,10 @@ describe("Awwwards source policy & helpers", () => {
       tier: "nominee",
       evidence: "Nominee - Awwwards",
     });
+    expect(classifyAwardPage("")).toEqual({
+      tier: "unknown",
+      evidence: "",
+    });
   });
 
   it("verifies a live SOTD page and fails closed on a non-winning page", async () => {
@@ -161,8 +165,9 @@ describe("Awwwards source policy & helpers", () => {
       init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
     })) as unknown as typeof fetch;
     const verification = verifyAwwwardsSotd("https://www.awwwards.com/sites/slow");
+    const failure = expect(verification).rejects.toThrow("timed out");
     await vi.advanceTimersByTimeAsync(AWWWARDS_FETCH_TIMEOUT_MS);
-    await expect(verification).rejects.toThrow("timed out");
+    await failure;
     vi.useRealTimers();
   });
 
