@@ -40,11 +40,7 @@ export function isAwwwardsUrl(value: string): boolean {
 
 export function isAwwwardsSiteUrl(value: string): boolean {
   if (!isAwwwardsUrl(value)) return false;
-  try {
-    return new URL(normalizeHttpUrl(value)).pathname.startsWith("/sites/");
-  } catch {
-    return false;
-  }
+  return new URL(normalizeHttpUrl(value)).pathname.startsWith("/sites/");
 }
 
 export function canonicalizeUrl(value: string): string {
@@ -234,13 +230,7 @@ export function filterSotdResults(results: SerperOrganicResult[]): SerperOrganic
 }
 
 export function filterSotdImages(images: SerperImage[], resultLinks: Set<string>): SerperImage[] {
-  return filterAwwwardsImages(images).filter((image) => {
-    try {
-      return resultLinks.has(canonicalizeUrl(image.link));
-    } catch {
-      return false;
-    }
-  });
+  return filterAwwwardsImages(images).filter((image) => resultLinks.has(canonicalizeUrl(image.link)));
 }
 
 export function formatSearchResults(results: SerperOrganicResult[], query: string): string {

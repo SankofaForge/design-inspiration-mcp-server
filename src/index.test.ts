@@ -89,6 +89,10 @@ describe("Awwwards source policy & helpers", () => {
       tier: "honorable-mention",
       evidence: "Memo - Awwwards Honorable Mention",
     });
+    expect(classifyAwardPage("<title>Nominee - Awwwards</title>")).toEqual({
+      tier: "nominee",
+      evidence: "Nominee - Awwwards",
+    });
     expect(classifyAwardPage("<title>Unverified page</title>")).toEqual({
       tier: "unknown",
       evidence: "Unverified page",
@@ -106,6 +110,12 @@ describe("Awwwards source policy & helpers", () => {
     mockVerifiedSotdPage("<title>Memo - Awwwards Honorable Mention</title>");
     await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/memo")).rejects.toThrow(
       "not a verified Site of the Day winner (honorable-mention)"
+    );
+  });
+
+  it("rejects non-Awwwards URLs before fetching", async () => {
+    await expect(verifyAwwwardsSotd("https://example.com/sites/not-awwwards")).rejects.toThrow(
+      "requires an Awwwards site URL"
     );
   });
 
