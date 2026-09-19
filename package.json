@@ -41,8 +41,13 @@
     "zod": "^4.6.2"
   },
   "overrides": {
+    "@hono/node-server": "^1.19.15",
+    "body-parser": "^2.3.0",
+    "express-rate-limit": "^8.2.2",
     "fast-uri": "^3.1.6",
     "hono": "^4.13.5",
+    "ip-address": "^10.3.1",
+    "path-to-regexp": "^8.4.0",
     "qs": "^6.16.0"
   },
   "devDependencies": {
