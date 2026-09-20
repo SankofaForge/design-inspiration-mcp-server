@@ -677,6 +677,21 @@ describe("Schema validations", () => {
       }).success
     ).toBe(false);
   });
+
+  it("requires distinct live-site URLs and capture names under the capture contract", () => {
+    const base = {
+      url: "https://awwwards.com/sites/test",
+      role: "hero",
+      captureName: "hero-capture",
+      liveUrl: "https://example.com/hero",
+    };
+    expect(PrepareReferencesInputSchema.safeParse({ references: [{ ...base, liveUrl: "https://awwwards.com/sites/live" }] }).success).toBe(false);
+    expect(PrepareReferencesInputSchema.safeParse({ references: [{ ...base, liveUrl: "ftp://example.com/hero" }] }).success).toBe(false);
+    expect(PrepareReferencesInputSchema.safeParse({ references: [{ ...base, liveUrl: "https://example.com/hero" }, { ...base, captureName: "other", liveUrl: "https://example.com/hero" }] }).success).toBe(false);
+    expect(PrepareReferencesInputSchema.safeParse({ references: [{ ...base }, { ...base, captureName: "other", liveUrl: "https://example.com/other" }] }).success).toBe(true);
+    expect(PrepareReferencesInputSchema.safeParse({ references: [{ ...base, captureName: "a".repeat(82) }] }).success).toBe(false);
+    expect(PrepareReferencesInputSchema.safeParse({ references: [{ ...base, captureName: "a".repeat(81) }] }).success).toBe(true);
+  });
 });
 
 describe("Server request routing & tool execution via MCP client", () => {
@@ -744,6 +759,7 @@ describe("Server request routing & tool execution via MCP client", () => {
 
     const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("Serper search failed");
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
   });
 
   it.each(["color-palette", "typography", "layout", "animation", "general"] as const)(
@@ -844,6 +860,7 @@ describe("Server request routing & tool execution via MCP client", () => {
 
     const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("Styles search error");
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
   });
 
   it("executes design_extract_tokens successfully", async () => {
@@ -879,6 +896,7 @@ describe("Server request routing & tool execution via MCP client", () => {
 
     const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("dembrandt failed: dembrandt binary missing");
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
   });
 
   it("handles non-Error thrown in design_search_references", async () => {
@@ -891,6 +909,7 @@ describe("Server request routing & tool execution via MCP client", () => {
 
     const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toBe("Error: search-failure-string");
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
   });
 
   it("handles missing images and organic arrays gracefully in search tools", async () => {
@@ -924,6 +943,7 @@ describe("Server request routing & tool execution via MCP client", () => {
 
     const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toBe("Error: styles-string-error");
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
   });
 
   it("handles non-Error thrown in design_extract_tokens", async () => {
@@ -939,6 +959,7 @@ describe("Server request routing & tool execution via MCP client", () => {
 
     const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toBe("Error: string-dembrandt-error");
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
   });
 
   it("executes design_prepare_references with empty asset plan", async () => {
@@ -950,6 +971,7 @@ describe("Server request routing & tool execution via MCP client", () => {
             url: "https://www.awwwards.com/sites/ref-no-assets",
             role: "reference without assets",
             captureName: "no-assets-ref",
+            liveUrl: "https://example.com/no-assets",
             requires3d: false,
             assetRequirements: [],
           },
@@ -982,6 +1004,7 @@ describe("Server request routing & tool execution via MCP client", () => {
             url: "https://www.awwwards.com/sites/memo",
             role: "hero reference",
             captureName: "hero-reference",
+            liveUrl: "https://example.com/hero",
           },
         ],
       },
@@ -1002,6 +1025,7 @@ describe("Server request routing & tool execution via MCP client", () => {
             url: "https://www.awwwards.com/sites/ref-3d#hash-to-strip",
             role: "hero 3d element",
             captureName: "hero-3d",
+            liveUrl: "https://example.com/hero-3d",
             requires3d: true,
           },
         ],
@@ -1036,6 +1060,7 @@ describe("Server request routing & tool execution via MCP client", () => {
           url: "https://www.awwwards.com/sites/ref-2d",
           role: "hero motion",
           captureName: "hero-motion",
+          liveUrl: "https://example.com/hero-motion",
           assetRequirements: [asset],
         }],
       },
@@ -1049,6 +1074,8 @@ describe("Server request routing & tool execution via MCP client", () => {
       route: "svgator",
       outputs: ["lottie", "svg"],
       asset,
+      sourceReference: "https://www.awwwards.com/sites/ref-2d",
+      liveSiteUrl: "https://example.com/hero-motion",
     });
   });
 
@@ -1061,6 +1088,7 @@ describe("Server request routing & tool execution via MCP client", () => {
             url: "https://www.awwwards.com/sites/ref-2d",
             role: "navigation motion",
             captureName: "nav-motion",
+            liveUrl: "https://example.com/nav-motion",
             extractTokens: true,
             assetRequirements: [
               {
@@ -1085,6 +1113,7 @@ describe("Server request routing & tool execution via MCP client", () => {
             url: "https://www.awwwards.com/sites/ref-simple",
             role: "simple reference",
             captureName: "simple-ref",
+            liveUrl: "https://example.com/simple-ref",
             requires3d: false,
           },
         ],

@@ -1,0 +1,65 @@
+{
+  "contract": "open-design-effect-extractor-handoff.v1",
+  "reference": {
+    "sourceReference": "https://www.awwwards.com/sites/reference-site",
+    "liveUrl": "https://example.com/reference-site",
+    "captureName": "reference-site-motion"
+  },
+  "designDocument": {
+    "path": "DESIGN.md",
+    "status": "provided"
+  },
+  "capabilityManifest": {
+    "version": 1,
+    "openDesign": {
+      "available": true,
+      "requiredTools": ["od-web-effect-extractor"]
+    }
+  },
+  "motionAnalysis": {
+    "schemaVersion": "motion-analysis.v1",
+    "path": "artifacts/design-inspiration/motion-analysis.json",
+    "status": "provided"
+  },
+  "frameMatrix": [
+    { "viewport": "desktop", "motion": "full", "path": "frames/desktop-full-001.png", "redacted": true },
+    { "viewport": "desktop", "motion": "reduced", "path": "frames/desktop-reduced-001.png", "redacted": true },
+    { "viewport": "mobile", "motion": "full", "path": "frames/mobile-full-001.png", "redacted": true },
+    { "viewport": "mobile", "motion": "reduced", "path": "frames/mobile-reduced-001.png", "redacted": true }
+  ],
+  "privacyBoundary": {
+    "approvedInputs": ["liveUrl", "DESIGN.md", "motionAnalysis", "selectedRedactedFrames"],
+    "excludedInputs": ["credentials", ".env", "privateSource", "personalData", "fullWebm"],
+    "status": "enforced"
+  },
+  "fallbackEffect": {
+    "status": "provided",
+    "path": "effects/reference-site-static-fallback.html",
+    "reducedMotionSafe": true
+  },
+  "parity": {
+    "status": "audited",
+    "referenceStates": ["desktop-full", "desktop-reduced", "mobile-full", "mobile-reduced"],
+    "implementationStates": ["desktop-full", "desktop-reduced", "mobile-full", "mobile-reduced"]
+  },
+  "extractionReport": {
+    "status": "provided",
+    "path": "artifacts/design-inspiration/open-design/extraction-report.json",
+    "source": "liveUrl",
+    "effectTypes": ["scroll", "pointer", "timing"]
+  },
+  "assetProvenance": [
+    {
+      "assetId": "hero-motion",
+      "sourceReference": "https://www.awwwards.com/sites/reference-site",
+      "liveSiteUrl": "https://example.com/reference-site",
+      "route": "svgator"
+    }
+  ],
+  "remainingDifferences": [
+    "WebGL shader detail remains approximate in the fallback effect."
+  ],
+  "registration": "not-performed",
+  "capture": "not-performed"
+}
+

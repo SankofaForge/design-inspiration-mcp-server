@@ -43,6 +43,18 @@ export function isAwwwardsSiteUrl(value: string): boolean {
   return new URL(normalizeHttpUrl(value)).pathname.startsWith("/sites/");
 }
 
+export function isLiveSiteUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      !isAwwwardsUrl(value)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function canonicalizeUrl(value: string): string {
   const url = new URL(normalizeHttpUrl(value));
   url.hash = "";
@@ -330,6 +342,7 @@ server.registerTool("design_search_references", {
     };
   } catch (error) {
     return {
+      isError: true,
       content: [
         {
           type: "text" as const,
@@ -453,6 +466,7 @@ server.registerTool("design_search_styles", {
     };
   } catch (error) {
     return {
+      isError: true,
       content: [
         {
           type: "text" as const,
@@ -616,6 +630,7 @@ server.registerTool("design_extract_tokens", {
     };
   } catch (error) {
     return {
+      isError: true,
       content: [
         {
           type: "text" as const,
@@ -676,15 +691,33 @@ export const PrepareReferencesInputSchema = z.object({
       .url()
       .refine((value) => /^https?:$/.test(new URL(value).protocol), "URL must use HTTP or HTTPS")
       .refine(isAwwwardsSiteUrl, "Reference URL must be an Awwwards site page"),
+    liveUrl: z
+      .string()
+      .trim()
+      .min(1, "liveUrl is required")
+      .url("liveUrl must be a valid URL")
+      .refine((value) => /^https?:$/.test(new URL(value).protocol), "liveUrl must use HTTP or HTTPS")
+      .refine(isLiveSiteUrl, "liveUrl must not be an Awwwards URL"),
     role: z.string().trim().min(1).max(120),
-    captureName: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/),
+    captureName: z.string().trim().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,80}$/, "captureName must contain 1 to 81 letters, numbers, dots, dashes, or underscores"),
     extractTokens: z.boolean().default(false),
     requires3d: z.boolean().default(false),
     assetRequirements: z.array(AssetRequirementSchema).max(20).default([]),
   }).strict()).min(1).max(100),
 }).strict().superRefine((value, ctx) => {
   const ids = new Set<string>();
+  const captureNames = new Set<string>();
+  const liveUrls = new Set<string>();
   value.references.forEach((reference, referenceIndex) => {
+    if (captureNames.has(reference.captureName)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate captureName: ${reference.captureName}`, path: ["references", referenceIndex, "captureName"] });
+    }
+    captureNames.add(reference.captureName);
+    const liveUrl = canonicalizeUrl(reference.liveUrl);
+    if (liveUrls.has(liveUrl)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate liveUrl: ${reference.liveUrl}`, path: ["references", referenceIndex, "liveUrl"] });
+    }
+    liveUrls.add(liveUrl);
     reference.assetRequirements.forEach((asset, assetIndex) => {
       if (ids.has(asset.id)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate asset ID: ${asset.id}`, path: ["references", referenceIndex, "assetRequirements", assetIndex, "id"] });
@@ -718,7 +751,13 @@ server.registerTool("design_prepare_references", {
             prompt: reference.role,
           }]
           : [];
-      references.push({ ...reference, url: awardVerification.url, awardVerification, assetRequirements });
+      references.push({
+        ...reference,
+        url: awardVerification.url,
+        liveUrl: reference.liveUrl.trim(),
+        awardVerification,
+        assetRequirements,
+      });
     }
   } catch (error) {
     return {
@@ -741,6 +780,7 @@ server.registerTool("design_prepare_references", {
       ? "Create or modify a Blender scene and export web-ready assets"
       : "Create or edit the animation in the selected 2D animation MCP and export the requested formats",
     sourceReference: reference.url,
+    liveSiteUrl: reference.liveUrl,
     asset,
   })));
   const markdown = [

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add required live-site URLs, capture-server-compatible names, duplicate checks,
+  live-site asset provenance, and consistent MCP error responses for operational
+  search and token failures.
 - Remove the legacy image-search tool. Use reference search for Awwwards page links or style search for aesthetic research.
 - Restrict image search, reference search, style search, token extraction, and reference preparation to Awwwards.com.
 

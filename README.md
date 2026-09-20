@@ -20,7 +20,7 @@ The token extraction tool reads an Awwwards.com page and reports its colors, fon
 
 **`design_search_styles`** — Search SOTD winners for a specific aesthetic direction. It combines image and web results for color, typography, layout, or animation queries, and keeps images only when their page also passed the SOTD filter.
 
-**`design_prepare_references`** — Fetch each selected Awwwards page and verify its title or award heading identifies a dated Site of the Day win before normalizing the handoff. Honorable Mentions, nominees, missing award metadata, non-2xx responses, and timeouts fail the handoff.
+**`design_prepare_references`** — Fetch each selected Awwwards page and verify its title or award heading identifies a dated Site of the Day win before normalizing the handoff. Each reference also requires a distinct, valid non-Awwwards `liveUrl` and a `captureName` accepted by the live capture server (1–81 letters, numbers, dots, dashes, or underscores). Honorable Mentions, nominees, missing award metadata, non-2xx responses, and timeouts fail the handoff.
 
 **`design_extract_tokens`** — Extract design tokens from an Awwwards.com page. Supports `dark_mode` and `mobile` flags. Requires `dembrandt` installed globally (`npm install -g dembrandt`).
 
@@ -111,6 +111,8 @@ MIT
 ## Declarative 3D asset workflow
 
 References can declare that a site concept needs 3D assets. `design_prepare_references` verifies the SOTD award, validates the asset requirement, and returns an `assetPlan`; it does not capture the site, create files, call Blender, or invoke another MCP.
+
+The prepared reference preserves the indexed Awwwards `url` as source provenance and carries the selected live site through `liveUrl`. Asset-plan entries retain both as `sourceReference` and `liveSiteUrl`, so the capture handoff and asset provenance cannot be confused.
 
 When an asset plan contains `route: "blender"`, the host application or agent must resolve that task against its current capability manifest and route it to the available Blender MCP. This is host-level routing, not an invocation performed by this server. Preserve the asset ID and acceptance requirements in the Blender task. If Blender is unavailable, the host must return a blocked asset result instead of silently substituting CSS or a placeholder.
 
