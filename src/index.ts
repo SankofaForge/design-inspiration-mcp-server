@@ -3,6 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { execFile } from "node:child_process";
+import { isIP } from "node:net";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
@@ -20,6 +21,7 @@ export type DesignSite = keyof typeof DESIGN_SITES;
 export type AwardTier = "sotd" | "honorable-mention" | "nominee" | "unknown";
 export const AWWWARDS_FETCH_TIMEOUT_MS = 15_000;
 export const AWWWARDS_MAX_HTML_BYTES = 5 * 1024 * 1024;
+export const SERPER_TIMEOUT_MS = 15_000;
 const AWARD_DATE_PATTERN = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}\b/i;
 
 export function normalizeHttpUrl(value: string): string {
@@ -46,9 +48,15 @@ export function isAwwwardsSiteUrl(value: string): boolean {
 export function isLiveSiteUrl(value: string): boolean {
   try {
     const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    const address = isIP(hostname);
+    const privateIpv4 = address === 4 && (/^(10|127)\./.test(hostname) || /^192\.168\./.test(hostname) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) || hostname === "169.254.169.254");
+    const privateIpv6 = address === 6 && (hostname === "::1" || hostname.startsWith("fc") || hostname.startsWith("fd") || hostname.startsWith("fe80:"));
     return (
       (url.protocol === "http:" || url.protocol === "https:") &&
-      !isAwwwardsUrl(value)
+      !isAwwwardsUrl(value) && !url.username && !url.password &&
+      hostname !== "localhost" && !hostname.endsWith(".localhost") && !hostname.endsWith(".local") &&
+      !privateIpv4 && !privateIpv6
     );
   } catch {
     return false;
@@ -169,14 +177,24 @@ export async function serperRequest<T>(
     );
   }
 
-  const response = await fetch(`${SERPER_API_URL}${endpoint}`, {
-    method: "POST",
-    headers: {
-      "X-API-KEY": apiKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SERPER_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(`${SERPER_API_URL}${endpoint}`, {
+      method: "POST",
+      headers: {
+        "X-API-KEY": apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok) {
     const status = response.status;
@@ -187,7 +205,9 @@ export async function serperRequest<T>(
     throw new Error(`Error: Serper API returned status ${status}`);
   }
 
-  return response.json() as Promise<T>;
+  const data: unknown = await response.json();
+  if (!data || typeof data !== "object") throw new Error("Serper API returned a non-object response");
+  return data as T;
 }
 
 export interface SerperImage {
@@ -588,7 +608,7 @@ export const ExtractTokensInputSchema = z
     url: z
       .string()
       .min(4, "URL is required")
-      .refine(isAwwwardsUrl, "URL must be on Awwwards.com")
+      .refine(isAwwwardsSiteUrl, "URL must be an Awwwards site page")
       .describe('Awwwards.com URL to extract design tokens from. Example: "https://www.awwwards.com/sites/example"'),
     dark_mode: z
       .boolean()
@@ -675,11 +695,17 @@ const AssetRequirementSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "lottie assets require lottie or dotlottie output", path: ["preferredFormats"] });
   }
   if (asset.kind === "3d-model" || asset.kind === "3d-render") {
+    if (!asset.preferredFormats.some((format) => ["glb", "gltf", "png", "webp", "usdz"].includes(format))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "3D assets require glb, gltf, png, webp, or usdz output", path: ["preferredFormats"] });
+    }
     if (asset.preferredTool && asset.preferredTool !== "blender") {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "3D assets must use Blender", path: ["preferredTool"] });
     }
   } else if (asset.preferredTool === "blender") {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "2D assets cannot use Blender", path: ["preferredTool"] });
+  }
+  if (asset.kind === "animated-svg" && asset.preferredTool === "lottie-creator" && !asset.preferredFormats.some((format) => ["lottie", "dotlottie"].includes(format))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "lottie-creator requires lottie or dotlottie output", path: ["preferredFormats"] });
   }
 });
 
@@ -709,10 +735,11 @@ export const PrepareReferencesInputSchema = z.object({
   const captureNames = new Set<string>();
   const liveUrls = new Set<string>();
   value.references.forEach((reference, referenceIndex) => {
-    if (captureNames.has(reference.captureName)) {
+    const normalizedCaptureName = reference.captureName.toLowerCase();
+    if (captureNames.has(normalizedCaptureName)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate captureName: ${reference.captureName}`, path: ["references", referenceIndex, "captureName"] });
     }
-    captureNames.add(reference.captureName);
+    captureNames.add(normalizedCaptureName);
     const liveUrl = canonicalizeUrl(reference.liveUrl);
     if (liveUrls.has(liveUrl)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate liveUrl: ${reference.liveUrl}`, path: ["references", referenceIndex, "liveUrl"] });
@@ -753,6 +780,7 @@ server.registerTool("design_prepare_references", {
           : [];
       references.push({
         ...reference,
+        captureName: reference.captureName.toLowerCase(),
         url: awardVerification.url,
         liveUrl: reference.liveUrl.trim(),
         awardVerification,
