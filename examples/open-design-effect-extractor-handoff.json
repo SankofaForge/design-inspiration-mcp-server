@@ -1,5 +1,5 @@
 {
-  "contract": "open-design-effect-extractor-handoff.v1",
+  "contract": "open-design-effect-extractor-handoff.v2",
   "reference": {
     "sourceReference": "https://www.awwwards.com/sites/reference-site",
     "liveUrl": "https://example.com/reference-site",
@@ -17,9 +17,22 @@
     }
   },
   "motionAnalysis": {
-    "schemaVersion": "motion-analysis.v1",
+    "schemaVersion": "motion-analysis.v2",
     "path": "artifacts/design-inspiration/motion-analysis.json",
-    "status": "provided"
+    "status": "provided",
+    "source": {
+      "mode": "native-video",
+      "artifactPath": "artifacts/design-inspiration/site-motion-capture/reference-site-motion.webm",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "durationSeconds": 12.5,
+      "captureRunId": "reference-site-motion-run",
+      "cellId": "desktop-full"
+    },
+    "provenance": {
+      "sourceUrl": "https://example.com/reference-site",
+      "viewport": "desktop",
+      "motionMode": "full"
+    }
   },
   "frameMatrix": [
     { "viewport": "desktop", "motion": "full", "path": "frames/desktop-full-001.png", "redacted": true },
@@ -62,4 +75,3 @@
   "registration": "not-performed",
   "capture": "not-performed"
 }
-
