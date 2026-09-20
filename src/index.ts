@@ -763,8 +763,9 @@ server.registerTool("design_prepare_references", {
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
 }, async (params: PrepareReferencesInput) => {
   const references = [];
-  try {
-    for (const reference of params.references) {
+  const failures = [];
+  for (const reference of params.references) {
+    try {
       const awardVerification = await verifyAwwwardsSotd(reference.url);
       const assetRequirements = reference.assetRequirements.length > 0
         ? reference.assetRequirements
@@ -784,18 +785,12 @@ server.registerTool("design_prepare_references", {
         url: awardVerification.url,
         liveUrl: reference.liveUrl.trim(),
         awardVerification,
+        provenance: { awardReferenceUrl: awardVerification.url, liveSiteUrl: reference.liveUrl.trim(), sourceKind: "awwwards-reference" },
         assetRequirements,
       });
+    } catch (error) {
+      failures.push({ captureName: reference.captureName, url: reference.url, status: "failed", reason: error instanceof Error ? error.message : String(error) });
     }
-  } catch (error) {
-    return {
-      isError: true,
-      content: [{
-        type: "text" as const,
-        /* c8 ignore next -- verifyAwwwardsSotd normalizes unknown throws to Error. */
-        text: error instanceof Error ? error.message : `Awwwards award verification failed: ${String(error)}`,
-      }],
-    };
   }
   const assetPlan = references.flatMap((reference) => reference.assetRequirements.map((asset) => ({
     assetId: asset.id,
@@ -816,7 +811,8 @@ server.registerTool("design_prepare_references", {
     ...references.map((reference) => `- [${reference.captureName}](${reference.url}) — SOTD ${reference.awardVerification.awardDate}; ${reference.role}; capture${reference.extractTokens ? ", extract tokens" : ""}${reference.assetRequirements.length ? `, ${reference.assetRequirements.length} asset requirement(s)` : ""}.`),
     ...(assetPlan.length ? ["", "## Asset plan", "", ...assetPlan.map((asset) => `- \`${asset.assetId}\` (${asset.asset.kind}) → ${asset.route}; outputs: ${asset.outputs.join(", ")}.`)] : []),
   ].join("\n");
-  return { content: [{ type: "text" as const, text: markdown }], structuredContent: { references, count: references.length, assetPlan } };
+  const text = `${markdown}${failures.length ? `\n\n## Failed references\n\n${failures.map((failure) => `- ${failure.captureName}: ${failure.reason}`).join("\n")}` : ""}`;
+  return { content: [{ type: "text" as const, text }], structuredContent: { references, failures, count: references.length, assetPlan } };
 });
 
 export async function main() {

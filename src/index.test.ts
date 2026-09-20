@@ -1127,7 +1127,8 @@ describe("Server request routing & tool execution via MCP client", () => {
       },
     });
 
-    expect((res as ToolCallResultWithStructured).isError).toBe(true);
+    expect((res as ToolCallResultWithStructured).isError).not.toBe(true);
+    expect((res as ToolCallResultWithStructured).structuredContent?.failures).toHaveLength(1);
     expect(((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text).toContain(
       "not a verified Site of the Day winner (honorable-mention)"
     );
