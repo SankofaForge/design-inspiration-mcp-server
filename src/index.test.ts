@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as childProcess from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import {
@@ -691,6 +693,51 @@ describe("Schema validations", () => {
     expect(PrepareReferencesInputSchema.safeParse({ references: [{ ...base }, { ...base, captureName: "other", liveUrl: "https://example.com/other" }] }).success).toBe(true);
     expect(PrepareReferencesInputSchema.safeParse({ references: [{ ...base, captureName: "a".repeat(82) }] }).success).toBe(false);
     expect(PrepareReferencesInputSchema.safeParse({ references: [{ ...base, captureName: "a".repeat(81) }] }).success).toBe(true);
+  });
+});
+
+describe("Open Design effect-extractor handoff audit fixture", () => {
+  it("covers the read-only evidence, privacy, parity, and provenance contract", () => {
+    const fixture = JSON.parse(readFileSync(resolve(process.cwd(), "examples/open-design-effect-extractor-handoff.json"), "utf8")) as {
+      reference: { liveUrl: string };
+      designDocument: { path: string };
+      capabilityManifest: { openDesign: { requiredTools: string[] } };
+      motionAnalysis: { schemaVersion: string };
+      frameMatrix: Array<{ viewport: string; motion: string; redacted: boolean }>;
+      privacyBoundary: { approvedInputs: string[]; excludedInputs: string[]; status: string };
+      fallbackEffect: { status: string; reducedMotionSafe: boolean };
+      parity: { status: string; referenceStates: string[]; implementationStates: string[] };
+      extractionReport: { status: string; source: string };
+      assetProvenance: Array<{ sourceReference: string; liveSiteUrl: string }>;
+      remainingDifferences: string[];
+      registration: string;
+      capture: string;
+    };
+
+    expect(fixture.reference.liveUrl).toMatch(/^https?:\/\//);
+    expect(fixture.designDocument.path).toBe("DESIGN.md");
+    expect(fixture.capabilityManifest.openDesign.requiredTools).toContain("od-web-effect-extractor");
+    expect(fixture.motionAnalysis.schemaVersion).toBe("motion-analysis.v1");
+    expect(fixture.frameMatrix).toEqual(expect.arrayContaining([
+      expect.objectContaining({ viewport: "desktop", motion: "full", redacted: true }),
+      expect.objectContaining({ viewport: "desktop", motion: "reduced", redacted: true }),
+      expect.objectContaining({ viewport: "mobile", motion: "full", redacted: true }),
+      expect.objectContaining({ viewport: "mobile", motion: "reduced", redacted: true }),
+    ]));
+    expect(fixture.privacyBoundary.status).toBe("enforced");
+    expect(fixture.privacyBoundary.approvedInputs).toEqual(expect.arrayContaining(["liveUrl", "DESIGN.md", "motionAnalysis", "selectedRedactedFrames"]));
+    expect(fixture.privacyBoundary.excludedInputs).toEqual(expect.arrayContaining(["credentials", ".env", "privateSource", "personalData", "fullWebm"]));
+    expect(fixture.fallbackEffect).toMatchObject({ status: "provided", reducedMotionSafe: true });
+    expect(fixture.parity.status).toBe("audited");
+    expect(fixture.parity.referenceStates).toEqual(fixture.parity.implementationStates);
+    expect(fixture.extractionReport).toMatchObject({ status: "provided", source: "liveUrl" });
+    expect(fixture.assetProvenance[0]).toMatchObject({
+      sourceReference: fixture.assetProvenance[0].sourceReference,
+      liveSiteUrl: fixture.reference.liveUrl,
+    });
+    expect(fixture.remainingDifferences.length).toBeGreaterThan(0);
+    expect(fixture.registration).toBe("not-performed");
+    expect(fixture.capture).toBe("not-performed");
   });
 });
 
