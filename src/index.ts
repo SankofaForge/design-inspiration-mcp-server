@@ -48,7 +48,7 @@ export function isAwwwardsSiteUrl(value: string): boolean {
 export function isLiveSiteUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    const hostname = url.hostname.toLowerCase();
+    const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
     const address = isIP(hostname);
     const privateIpv4 = address === 4 && (/^(10|127)\./.test(hostname) || /^192\.168\./.test(hostname) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) || hostname === "169.254.169.254");
     const privateIpv6 = address === 6 && (hostname === "::1" || hostname.startsWith("fc") || hostname.startsWith("fd") || hostname.startsWith("fe80:"));

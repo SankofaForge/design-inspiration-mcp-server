@@ -25,6 +25,7 @@ import {
   formatSearchResults,
   formatTokens,
   isAwwwardsUrl,
+  isLiveSiteUrl,
   main,
   normalizeHttpUrl,
   runDembrandt,
@@ -443,6 +444,35 @@ describe("serperRequest", () => {
     const data = await serperRequest<{ results: string[] }>("/search", { q: "test" });
     expect(data).toEqual({ results: ["ok"] });
   });
+
+  it("rejects non-object success responses", async () => {
+    process.env.SERPER_API_KEY = "dummy-key";
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => "invalid",
+    } as unknown as Response);
+
+    await expect(serperRequest("/search", { q: "test" })).rejects.toThrow(
+      "Serper API returned a non-object response"
+    );
+  });
+
+  it("aborts requests that exceed the bounded timeout", async () => {
+    process.env.SERPER_API_KEY = "dummy-key";
+    vi.useFakeTimers();
+    globalThis.fetch = vi.fn().mockImplementation((_input: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      })
+    );
+
+    const request = serperRequest("/search", { q: "test" });
+    const failure = expect(request).rejects.toThrow("aborted");
+    await vi.advanceTimersByTimeAsync(AWWWARDS_FETCH_TIMEOUT_MS);
+    await failure;
+    vi.useRealTimers();
+  });
 });
 
 describe("runDembrandt", () => {
@@ -555,6 +585,46 @@ describe("Schema validations", () => {
         ],
       }).success
     ).toBe(false);
+
+    expect(isLiveSiteUrl("://malformed")).toBe(false);
+    expect(isLiveSiteUrl("https://example.com")).toBe(true);
+    expect(isLiveSiteUrl("http://10.0.0.1/private")).toBe(false);
+    expect(isLiveSiteUrl("http://192.168.1.1/private")).toBe(false);
+    expect(isLiveSiteUrl("http://172.16.0.1/private")).toBe(false);
+    expect(isLiveSiteUrl("http://169.254.169.254/private")).toBe(false);
+    expect(isLiveSiteUrl("http://[::1]/private")).toBe(false);
+    expect(isLiveSiteUrl("http://[fc00::1]/private")).toBe(false);
+    expect(isLiveSiteUrl("http://[fd00::1]/private")).toBe(false);
+    expect(isLiveSiteUrl("http://[fe80::1]/private")).toBe(false);
+    expect(
+      PrepareReferencesInputSchema.safeParse({
+        references: [{
+          url: "https://awwwards.com/sites/test",
+          role: "hero 3d",
+          captureName: "hero",
+          liveUrl: "https://example.com/hero",
+          assetRequirements: [{ id: "asset-1", kind: "3d-model", role: "model", preferredFormats: ["svg"], delivery: "web" }],
+        }],
+      }).success,
+    ).toBe(false);
+    expect(
+      PrepareReferencesInputSchema.safeParse({
+        references: [{
+          url: "https://awwwards.com/sites/test",
+          role: "hero animation",
+          captureName: "hero",
+          liveUrl: "https://example.com/hero",
+          assetRequirements: [{ id: "asset-1", kind: "animated-svg", role: "animation", preferredTool: "lottie-creator", preferredFormats: ["svg"], delivery: "web", animation: { durationMs: 1000 } }],
+        }],
+      }).success,
+    ).toBe(false);
+    const duplicate = PrepareReferencesInputSchema.safeParse({
+      references: [
+        { url: "https://awwwards.com/sites/one", role: "one", captureName: "Hero", liveUrl: "https://example.com/one", assetRequirements: [{ id: "shared", kind: "3d-model", role: "one", preferredFormats: ["glb"], delivery: "web" }] },
+        { url: "https://awwwards.com/sites/two", role: "two", captureName: "hero", liveUrl: "https://example.com/two", assetRequirements: [{ id: "shared", kind: "3d-model", role: "two", preferredFormats: ["glb"], delivery: "web" }] },
+      ],
+    });
+    expect(duplicate.success).toBe(false);
 
     // animated-svg without svg/lottie/dotlottie formats
     expect(
