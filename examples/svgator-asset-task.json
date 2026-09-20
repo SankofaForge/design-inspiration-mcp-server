@@ -1,32 +1,45 @@
 {
-  "assetId": "hero-logo-reveal",
+  "assetId": "hero-origami-bird",
   "route": "svgator",
-  "kind": "animated-svg",
-  "role": "Animated brand mark in the hero",
-  "prompt": "Reveal the logo with a restrained 900ms ease-out draw-on animation",
-  "preferredFormats": ["svg", "lottie"],
+  "preferredTool": "svgator",
+  "kind": "lottie",
+  "role": "Complex vector illustration in the hero with Lottie as the primary format",
+  "prompt": "Create an origami bird with articulated wings and layered feather paths in SVGator. Animate coordinated wing folds, feather path morphs, and a curved flight path over 2400ms. Stagger the feather motion and settle the bird into a final resting pose. Use features compatible with both Lottie JSON and animated SVG exports. This complex vector task requires SVGator authoring beyond the simple shape-layer compiler.",
+  "preferredFormats": ["lottie", "svg"],
+  "authoring": {
+    "endpoint": "https://mcp.svgator.com/mcp",
+    "requiredTools": ["create_project", "edit_part", "export_project"],
+    "executionOwner": "host",
+    "onUnavailable": "blocked",
+    "implicitFallbackAllowed": false
+  },
   "animation": {
-    "durationMs": 900,
+    "durationMs": 2400,
     "loop": false,
     "trigger": "in-view",
     "reducedMotion": "static"
   },
   "performanceBudget": {
-    "maxFileKb": 75,
-    "maxPaths": 80,
+    "maxFileKb": 150,
+    "maxPaths": 120,
     "maxFps": 60
   },
   "acceptance": [
-    "Exports as a self-contained animated SVG and a Lottie-compatible JSON asset.",
-    "Preserves the requested timing and trigger behavior.",
-    "Provides a static reduced-motion fallback.",
-    "Meets the file-size and path-count budgets."
+    "Deliver Lottie JSON, a self-contained animated SVG, and a separate static SVG of the final resting pose.",
+    "Parse each exported JSON and SVG file successfully before acceptance.",
+    "Validate Lottie playback in the target player and animated SVG playback in the browser without missing paths or unsupported effects.",
+    "Check coordinated wing folds, feather morphs, and the curved flight path in both animated exports.",
+    "Verify a 2400ms animation that plays once when the asset enters view and retains the final resting pose.",
+    "Verify that reduced-motion mode displays the static SVG without starting either animation.",
+    "Measure each output file: at most 150 KB and 120 vector paths, with animated playback at no more than 60 FPS.",
+    "If SVGator tools or required exports are unavailable, report the asset as blocked and preserve its ID and requested route."
   ],
   "delivery": {
     "web": true,
     "outputs": [
-      "public/assets/hero-logo-reveal.svg",
-      "public/assets/hero-logo-reveal.json"
+      "public/assets/hero-origami-bird.json",
+      "public/assets/hero-origami-bird.svg",
+      "public/assets/hero-origami-bird-static.svg"
     ]
   }
 }

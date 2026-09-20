@@ -112,7 +112,7 @@ MIT
 
 References can declare that a site concept needs 3D assets. `design_prepare_references` verifies the SOTD award, validates the asset requirement, and returns an `assetPlan`; it does not capture the site, create files, call Blender, or invoke another MCP.
 
-When an asset plan contains `route: "blender"`, the host application or agent must route that task to the available Blender MCP. This is host-level routing, not an invocation performed by this server. Preserve the asset ID and acceptance requirements in the Blender task.
+When an asset plan contains `route: "blender"`, the host application or agent must resolve that task against its current capability manifest and route it to the available Blender MCP. This is host-level routing, not an invocation performed by this server. Preserve the asset ID and acceptance requirements in the Blender task. If Blender is unavailable, the host must return a blocked asset result instead of silently substituting CSS or a placeholder.
 
 Use [`examples/blender-asset-task.json`](examples/blender-asset-task.json) as the handoff shape. Include subject, visual intent, camera, composition, materials, lighting, animation, web-ready output formats, performance limits, and acceptance expectations. Web outputs normally include compressed `.glb` or `.gltf` plus a `.png` or `.webp` fallback. Acceptance verifies clean-viewer loading, framing, materials, animations, and performance budgets.
 
@@ -122,10 +122,18 @@ Do not replace a declared 3D requirement with CSS or a placeholder without user 
 
 ## Declarative 2D animation workflow
 
-References can also declare animated SVG or Lottie deliverables. The server validates the animation requirements and returns an `assetPlan` route; it does not call SVGator or Lottie Creator itself.
+References can also declare animated SVG or Lottie deliverables. The server validates the animation requirements and returns an `assetPlan` route. It remains declarative and read-only with respect to asset authoring: it does not create asset files or call SVGator, Lottie Creator, Glaxnimate, or the brief-to-Lottie compiler.
 
 Use `kind: "animated-svg"` for a web-native animated SVG, or `kind: "lottie"` when Lottie is the primary delivery format. Set `preferredTool` to `"svgator"` or `"lottie-creator"` when the default route should be overridden. Without an explicit tool, animated SVG routes to SVGator and Lottie routes to Lottie Creator.
 
-Animation requirements can include duration, loop behavior, trigger, reduced-motion behavior, and file or path budgets. The host application must route `assetPlan.route = "svgator"` to the connected SVGator MCP or `assetPlan.route = "lottie-creator"` to Lottie Creator MCP, then preserve the asset ID and acceptance requirements during implementation.
+The host application resolves each route against its connected capability manifest and preserves the asset ID and acceptance requirements:
 
-See [`examples/svgator-asset-task.json`](examples/svgator-asset-task.json) for a complete handoff shape. The expected flow is `design_prepare_references -> assetPlan.route = "svgator" -> host application -> SVGator MCP -> export -> native site implementation and browser motion QA`.
+- `svgator` means the actual external [SVGator MCP](https://www.svgator.com/mcp-for-ai-animations), not Glaxnimate. Its official endpoint is `https://mcp.svgator.com/mcp`. The host must have at least `create_project`, `edit_part`, and `export_project` available for this authoring handoff. The host owns those calls and keeps authentication outside the handoff and repository.
+- `lottie-creator` remains the simple `brief-to-lottie` compiler route for requests that fit its supported shape-layer `SceneSpec`/`MotionSpec`. Complex Lottie work must explicitly set `kind: "lottie"` and `preferredTool: "svgator"` in the input asset requirement. The server does not infer complexity or automatically upgrade the default route.
+- Glaxnimate is a separate, explicitly selected host-only route for a complete authored SVG with valid semantic IDs. It is not a `preferredTool` value in this server's schema and must never be an implicit fallback for `svgator` or `lottie-creator`.
+
+If the requested capability is missing or incompatible, the host returns a blocked asset result with the original ID, route, and reason. It must not silently substitute Glaxnimate, handwritten SVG, CSS, or a placeholder.
+
+Animation requirements include duration, loop behavior, trigger, reduced-motion behavior, and file-size or path-count budgets. For the SVGator example, acceptance requires Lottie JSON, a self-contained animated SVG, and a separate static reduced-motion output. The host must validate each exported file before accepting it: parse the JSON and SVG, check playback in the target Lottie player and browser, verify timing and trigger behavior, check that reduced motion shows the static output, and measure the file-size and path-count budgets. A successful export call alone does not establish acceptance.
+
+See [`examples/svgator-asset-task.json`](examples/svgator-asset-task.json) for a complex vector/Lottie task in the host handoff shape. This example is not a direct `design_prepare_references` input: map `assetId` to the input asset requirement's `id`, pass `preferredTool: "svgator"`, and use `delivery: "web"`. Keep `route`, `authoring`, `acceptance`, and output paths in the host handoff, outside the server's strict input schema. The expected flow is `design_prepare_references -> assetPlan.route = "svgator" -> host application -> SVGator MCP -> export validation -> native site implementation and browser motion QA`.

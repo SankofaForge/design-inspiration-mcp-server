@@ -1018,6 +1018,40 @@ describe("Server request routing & tool execution via MCP client", () => {
     expect(text).toContain("## Asset plan");
   });
 
+  it("routes a complex Lottie request to explicitly preferred SVGator", async () => {
+    const asset = {
+      id: "hero-origami-bird",
+      kind: "lottie",
+      role: "Complex vector illustration with articulated wings and feather morphs",
+      preferredTool: "svgator",
+      preferredFormats: ["lottie", "svg"],
+      delivery: "web",
+      animation: { durationMs: 2400, loop: false, trigger: "in-view", reducedMotion: "static" },
+      performanceBudget: { maxFileKb: 150, maxPaths: 120, maxFps: 60 },
+    };
+    const res = await client.callTool({
+      name: "design_prepare_references",
+      arguments: {
+        references: [{
+          url: "https://www.awwwards.com/sites/ref-2d",
+          role: "hero motion",
+          captureName: "hero-motion",
+          assetRequirements: [asset],
+        }],
+      },
+    });
+
+    expect(res.isError, JSON.stringify(res.content)).not.toBe(true);
+    const structured = (res as ToolCallResultWithStructured<{ assetPlan: Array<{ assetId: string; route: string; outputs: string[]; asset: typeof asset }> }>).structuredContent!;
+    expect(structured.assetPlan).toHaveLength(1);
+    expect(structured.assetPlan[0]).toMatchObject({
+      assetId: asset.id,
+      route: "svgator",
+      outputs: ["lottie", "svg"],
+      asset,
+    });
+  });
+
   it("executes design_prepare_references with multiple references and 2D assets", async () => {
     const res = await client.callTool({
       name: "design_prepare_references",
