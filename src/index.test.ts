@@ -717,7 +717,7 @@ describe("Open Design effect-extractor handoff audit fixture", () => {
     expect(fixture.reference.liveUrl).toMatch(/^https?:\/\//);
     expect(fixture.designDocument.path).toBe("DESIGN.md");
     expect(fixture.capabilityManifest.openDesign.requiredTools).toContain("od-web-effect-extractor");
-    expect(fixture.motionAnalysis.schemaVersion).toBe("motion-analysis.v1");
+    expect(fixture.motionAnalysis.schemaVersion).toBe("motion-analysis.v2");
     expect(fixture.frameMatrix).toEqual(expect.arrayContaining([
       expect.objectContaining({ viewport: "desktop", motion: "full", redacted: true }),
       expect.objectContaining({ viewport: "desktop", motion: "reduced", redacted: true }),
