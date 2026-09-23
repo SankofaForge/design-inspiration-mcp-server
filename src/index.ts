@@ -22,6 +22,7 @@ export type AwardTier = "sotd" | "honorable-mention" | "nominee" | "unknown";
 export const AWWWARDS_FETCH_TIMEOUT_MS = 15_000;
 export const AWWWARDS_MAX_HTML_BYTES = 5 * 1024 * 1024;
 export const SERPER_TIMEOUT_MS = 15_000;
+export const SERPER_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const AWARD_DATE_PATTERN = /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+20\d{2}\b/i;
 
 export function normalizeHttpUrl(value: string): string {
@@ -33,6 +34,7 @@ export function isAwwwardsUrl(value: string): boolean {
     const url = new URL(normalizeHttpUrl(value));
     return (
       (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username && !url.password &&
       (url.hostname === AWWWARDS_HOST || url.hostname.endsWith(`.${AWWWARDS_HOST}`))
     );
   } catch {
@@ -166,6 +168,47 @@ export async function verifyAwwwardsSotd(value: string): Promise<AwardVerificati
   }
 }
 
+async function readSerperResponseText(response: Response): Promise<string> {
+  const limit = SERPER_MAX_RESPONSE_BYTES;
+  const reader = response.body?.getReader();
+  if (!reader) {
+    const text = await response.text();
+    if (new TextEncoder().encode(text).byteLength > limit) {
+      throw new Error(`Error: Serper API response exceeded ${limit} bytes`);
+    }
+    return text;
+  }
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > limit) {
+        try {
+          await reader.cancel();
+        } catch {
+          // The response is already oversized. Preserve that error if cancel fails.
+        }
+        throw new Error(`Error: Serper API response exceeded ${limit} bytes`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 export async function serperRequest<T>(
   endpoint: string,
   body: Record<string, string | number | boolean | null | undefined>
@@ -179,9 +222,8 @@ export async function serperRequest<T>(
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), SERPER_TIMEOUT_MS);
-  let response: Response;
   try {
-    response = await fetch(`${SERPER_API_URL}${endpoint}`, {
+    const response = await fetch(`${SERPER_API_URL}${endpoint}`, {
       method: "POST",
       headers: {
         "X-API-KEY": apiKey,
@@ -190,24 +232,38 @@ export async function serperRequest<T>(
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+    if (!response.ok) {
+      const status = response.status;
+      if (status === 401)
+        throw new Error("Error: Invalid SERPER_API_KEY. Check your key at https://serper.dev/api-key");
+      if (status === 429)
+        throw new Error("Error: Rate limit exceeded. Wait before making more requests.");
+      throw new Error(`Error: Serper API returned status ${status}`);
+    }
+
+    if (response.body || typeof response.text === "function") {
+      const text = await readSerperResponseText(response);
+      let data: unknown;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Error: Serper API returned invalid JSON");
+      }
+      if (!data || typeof data !== "object") throw new Error("Serper API returned a non-object response");
+      return data as T;
+    }
+
+    const data: unknown = await response.json();
+    if (!data || typeof data !== "object") throw new Error("Serper API returned a non-object response");
+    return data as T;
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`Error: Serper API request timed out after ${SERPER_TIMEOUT_MS / 1000}s`);
+    }
     throw error;
   } finally {
     clearTimeout(timeout);
   }
-
-  if (!response.ok) {
-    const status = response.status;
-    if (status === 401)
-      throw new Error("Error: Invalid SERPER_API_KEY. Check your key at https://serper.dev/api-key");
-    if (status === 429)
-      throw new Error("Error: Rate limit exceeded. Wait before making more requests.");
-    throw new Error(`Error: Serper API returned status ${status}`);
-  }
-
-  const data: unknown = await response.json();
-  if (!data || typeof data !== "object") throw new Error("Serper API returned a non-object response");
-  return data as T;
 }
 
 export interface SerperImage {
@@ -636,6 +692,7 @@ server.registerTool("design_extract_tokens", {
 }, async (params: ExtractTokensInput) => {
   try {
     const url = normalizeHttpUrl(params.url);
+    await verifyAwwwardsSotd(url);
     const flags: string[] = [];
     if (params.dark_mode) flags.push("--dark-mode");
     if (params.mobile) flags.push("--mobile");
@@ -812,12 +869,19 @@ server.registerTool("design_prepare_references", {
     ...(assetPlan.length ? ["", "## Asset plan", "", ...assetPlan.map((asset) => `- \`${asset.assetId}\` (${asset.asset.kind}) → ${asset.route}; outputs: ${asset.outputs.join(", ")}.`)] : []),
   ].join("\n");
   const text = `${markdown}${failures.length ? `\n\n## Failed references\n\n${failures.map((failure) => `- ${failure.captureName}: ${failure.reason}`).join("\n")}` : ""}`;
-  return { content: [{ type: "text" as const, text }], structuredContent: { references, failures, count: references.length, assetPlan } };
+  if (references.length === 0) {
+    return {
+      isError: true,
+      content: [{ type: "text" as const, text: `Blocked: no references passed Awwwards verification.\n\n${text}` }],
+      structuredContent: { status: "blocked", reasonCode: "references.all_failed", references, failures, count: 0, assetPlan },
+    };
+  }
+  return { content: [{ type: "text" as const, text }], structuredContent: { status: "ready", references, failures, count: references.length, assetPlan } };
 });
 
 export async function main() {
   if (!process.env.SERPER_API_KEY) {
-    console.error("WARNING: SERPER_API_KEY not set. Get a free key at https://serper.dev");
+    console.error("WARNING: SERPER_API_KEY not set; BLOCKED capability.serper.missing. Get a free key at https://serper.dev");
   }
 
   const transport = new StdioServerTransport();

@@ -266,6 +266,7 @@ describe("Awwwards source policy & helpers", () => {
     "https://behance.net/gallery/example",
     "https://example.com/design",
     "https://awwwards.com.example.com/sites/example",
+    "https://user:password@awwwards.com/sites/example",
     "ftp://awwwards.com",
     "http://other.com",
     "://invalid-url",
@@ -455,6 +456,19 @@ describe("serperRequest", () => {
 
     await expect(serperRequest("/search", { q: "test" })).rejects.toThrow(
       "Serper API returned a non-object response"
+    );
+  });
+
+  it("rejects oversized Serper response bodies", async () => {
+    process.env.SERPER_API_KEY = "dummy-key";
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "x".repeat(2 * 1024 * 1024 + 1),
+    } as unknown as Response);
+
+    await expect(serperRequest("/search", { q: "large" })).rejects.toThrow(
+      "Serper API response exceeded"
     );
   });
 
@@ -998,6 +1012,30 @@ describe("Server request routing & tool execution via MCP client", () => {
     expect(structured.tokens.colors.bg).toBe("#000");
   });
 
+  it("re-verifies the Awwwards page before extracting tokens", async () => {
+    const mockedExecFile = vi.mocked(childProcess.execFile);
+    mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
+      callback?.(null, JSON.stringify({ colors: { bg: "#000" } }), "");
+      return {} as unknown as childProcess.ChildProcess;
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "<title>Not an award</title>",
+    } as unknown as Response);
+
+    const res = await client.callTool({
+      name: "design_extract_tokens",
+      arguments: { url: "https://www.awwwards.com/sites/unverified" },
+    });
+
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
+    expect(vi.mocked(childProcess.execFile)).not.toHaveBeenCalled();
+    expect(((res as ToolCallResultWithStructured).content?.[0] as { text: string }).text).toContain(
+      "not a verified Site of the Day winner"
+    );
+  });
+
   it("handles error in design_extract_tokens", async () => {
     const mockedExecFile = vi.mocked(childProcess.execFile);
     mockedExecFile.mockImplementation((_cmd, _args, _opts, callback) => {
@@ -1127,11 +1165,33 @@ describe("Server request routing & tool execution via MCP client", () => {
       },
     });
 
-    expect((res as ToolCallResultWithStructured).isError).not.toBe(true);
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
     expect((res as ToolCallResultWithStructured).structuredContent?.failures).toHaveLength(1);
     expect(((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text).toContain(
       "not a verified Site of the Day winner (honorable-mention)"
     );
+  });
+
+  it("blocks preparation when every selected reference fails", async () => {
+    mockVerifiedSotdPage("<title>Memo - Awwwards Honorable Mention</title>");
+
+    const res = await client.callTool({
+      name: "design_prepare_references",
+      arguments: {
+        references: [{
+          url: "https://www.awwwards.com/sites/blocked",
+          role: "blocked reference",
+          captureName: "blocked-reference",
+          liveUrl: "https://example.com/blocked",
+        }],
+      },
+    });
+
+    expect((res as ToolCallResultWithStructured).isError).toBe(true);
+    expect((res as ToolCallResultWithStructured<{ status: string; reasonCode: string }>).structuredContent).toMatchObject({
+      status: "blocked",
+      reasonCode: "references.all_failed",
+    });
   });
 
   it("executes design_prepare_references with single reference and auto-generated 3d", async () => {
