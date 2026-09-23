@@ -472,17 +472,76 @@ describe("serperRequest", () => {
     );
   });
 
+  it("reads a bounded text-only response", async () => {
+    process.env.SERPER_API_KEY = "dummy-key";
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ results: ["text"] }),
+    } as unknown as Response);
+
+    await expect(serperRequest("/search", { q: "text" })).resolves.toEqual({ results: ["text"] });
+  });
+
+  it("reads streamed responses and rejects invalid or non-object JSON", async () => {
+    process.env.SERPER_API_KEY = "dummy-key";
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ results: ["stream"] })));
+    await expect(serperRequest("/search", { q: "stream" })).resolves.toEqual({ results: ["stream"] });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "not-json",
+    } as unknown as Response);
+    await expect(serperRequest("/search", { q: "invalid-json" })).rejects.toThrow(
+      "Serper API returned invalid JSON"
+    );
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => "null",
+    } as unknown as Response);
+    await expect(serperRequest("/search", { q: "non-object" })).rejects.toThrow(
+      "Serper API returned a non-object response"
+    );
+  });
+
+  it("bounds streamed responses when reader cancellation fails", async () => {
+    process.env.SERPER_API_KEY = "dummy-key";
+    const reader = {
+      read: vi.fn().mockResolvedValue({ done: false, value: new Uint8Array(2 * 1024 * 1024 + 1) }),
+      cancel: vi.fn().mockRejectedValue(new Error("cancel failed")),
+      releaseLock: vi.fn(),
+    };
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: { getReader: () => reader },
+    } as unknown as Response);
+
+    await expect(serperRequest("/search", { q: "large-stream" })).rejects.toThrow(
+      "Serper API response exceeded"
+    );
+    expect(reader.cancel).toHaveBeenCalledOnce();
+    expect(reader.releaseLock).toHaveBeenCalledOnce();
+  });
+
   it("aborts requests that exceed the bounded timeout", async () => {
     process.env.SERPER_API_KEY = "dummy-key";
     vi.useFakeTimers();
     globalThis.fetch = vi.fn().mockImplementation((_input: string, init?: RequestInit) =>
       new Promise((_resolve, reject) => {
-        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+        init?.signal?.addEventListener(
+          "abort",
+          () => reject(new DOMException("aborted", "AbortError")),
+          { once: true }
+        );
       })
     );
 
     const request = serperRequest("/search", { q: "test" });
-    const failure = expect(request).rejects.toThrow("aborted");
+    const failure = expect(request).rejects.toThrow("Serper API request timed out after 15s");
     await vi.advanceTimersByTimeAsync(AWWWARDS_FETCH_TIMEOUT_MS);
     await failure;
     vi.useRealTimers();
