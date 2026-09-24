@@ -52,8 +52,21 @@ export function isLiveSiteUrl(value: string): boolean {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
     const address = isIP(hostname);
-    const privateIpv4 = address === 4 && (/^(10|127)\./.test(hostname) || /^192\.168\./.test(hostname) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(hostname) || hostname === "169.254.169.254");
-    const privateIpv6 = address === 6 && (hostname === "::1" || hostname.startsWith("fc") || hostname.startsWith("fd") || hostname.startsWith("fe80:"));
+    const octets = address === 4 ? hostname.split(".").map(Number) : [];
+    const privateIpv4 = address === 4 && (
+      octets[0] === 0 || octets[0] === 10 || octets[0] === 127 || octets[0] >= 224 ||
+      (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) ||
+      (octets[0] === 169 && octets[1] === 254) ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) ||
+      (octets[0] === 192 && (octets[1] === 0 || octets[1] === 168 || (octets[1] === 88 && octets[2] === 99))) ||
+      (octets[0] === 198 && ((octets[1] === 18 || octets[1] === 19) || (octets[1] === 51 && octets[2] === 100))) ||
+      (octets[0] === 203 && octets[1] === 0 && octets[2] === 113)
+    );
+    const privateIpv6 = address === 6 && (
+      hostname === "::" || hostname === "::1" || /^f[cd]/.test(hostname) ||
+      /^fe[89ab]/.test(hostname) || hostname.startsWith("ff") ||
+      hostname.startsWith("2001:db8:") || hostname.startsWith("::")
+    );
     return (
       (url.protocol === "http:" || url.protocol === "https:") &&
       !isAwwwardsUrl(value) && !url.username && !url.password &&
@@ -146,10 +159,7 @@ export async function verifyAwwwardsSotd(value: string): Promise<AwardVerificati
     if (response.url && !isAwwwardsSiteUrl(response.url)) {
       throw new Error(`Awwwards award verification redirected outside Awwwards: ${response.url}`);
     }
-    const html = await response.text();
-    if (html.length > AWWWARDS_MAX_HTML_BYTES) {
-      throw new Error(`Awwwards award verification response exceeded ${AWWWARDS_MAX_HTML_BYTES} bytes: ${url}`);
-    }
+    const html = await readLimitedResponseText(response, AWWWARDS_MAX_HTML_BYTES, "Awwwards award verification");
     const verification = classifyAwardPage(html);
     if (verification.tier !== "sotd") {
       throw new Error(
@@ -168,13 +178,16 @@ export async function verifyAwwwardsSotd(value: string): Promise<AwardVerificati
   }
 }
 
-async function readSerperResponseText(response: Response): Promise<string> {
-  const limit = SERPER_MAX_RESPONSE_BYTES;
+async function readLimitedResponseText(response: Response, limit: number, label: string): Promise<string> {
   const reader = response.body?.getReader();
   if (!reader) {
+    const declaredLength = Number(response.headers?.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > limit) {
+      throw new Error(`${label} response exceeded ${limit} bytes`);
+    }
     const text = await response.text();
     if (new TextEncoder().encode(text).byteLength > limit) {
-      throw new Error(`Error: Serper API response exceeded ${limit} bytes`);
+      throw new Error(`${label} response exceeded ${limit} bytes`);
     }
     return text;
   }
@@ -192,7 +205,7 @@ async function readSerperResponseText(response: Response): Promise<string> {
         } catch {
           // The response is already oversized. Preserve that error if cancel fails.
         }
-        throw new Error(`Error: Serper API response exceeded ${limit} bytes`);
+        throw new Error(`${label} response exceeded ${limit} bytes`);
       }
       chunks.push(value);
     }
@@ -207,6 +220,10 @@ async function readSerperResponseText(response: Response): Promise<string> {
     offset += chunk.byteLength;
   }
   return new TextDecoder().decode(bytes);
+}
+
+async function readSerperResponseText(response: Response): Promise<string> {
+  return readLimitedResponseText(response, SERPER_MAX_RESPONSE_BYTES, "Error: Serper API");
 }
 
 export async function serperRequest<T>(
@@ -322,12 +339,13 @@ export function filterSotdImages(images: SerperImage[], resultLinks: Set<string>
 }
 
 export function formatSearchResults(results: SerperOrganicResult[], query: string): string {
-  if (!results.length) return `No results found for "${query}".`;
+  if (!results.length) return `No results found for "${query}". Search is provisional; select and verify a live site before using a result as evidence.`;
 
   const lines = [
     `# Design References: "${query}"`,
     "",
     "Award filter: Site of the Day",
+    "Search matches are provisional. Serp snippets do not verify an award; prepare and verify a selected Awwwards page before treating it as confirmed.",
     `Found ${results.length} results`,
     "",
   ];
@@ -404,6 +422,10 @@ server.registerTool("design_search_references", {
     return {
       content: [{ type: "text" as const, text }],
       structuredContent: {
+        status: results.length ? "partial" : "blocked",
+        reasonCode: results.length ? "search.selection_required" : "search.no_results",
+        verified: false,
+        provisional: true,
         query: params.query,
         awardTier: params.awardTier,
         count: results.length,
@@ -494,6 +516,7 @@ server.registerTool("design_search_styles", {
       `# Style Inspiration: "${params.style}" (${params.type})`,
       "",
       "Award filter: Site of the Day",
+      "Search matches are provisional. Serp snippets do not verify an award; prepare and verify a selected Awwwards page before treating it as confirmed.",
       "",
     ];
 
@@ -524,6 +547,10 @@ server.registerTool("design_search_styles", {
     return {
       content: [{ type: "text" as const, text }],
       structuredContent: {
+        status: results.length ? "partial" : "blocked",
+        reasonCode: results.length ? "search.selection_required" : "search.no_results",
+        verified: false,
+        provisional: true,
         style: params.style,
         type: params.type,
         images: images.slice(0, 5).map((img) => ({
@@ -766,6 +793,11 @@ const AssetRequirementSchema = z.object({
   }
 });
 
+function generated3dAssetId(captureName: string): string {
+  const normalized = captureName.toLowerCase();
+  return normalized.endsWith("-3d") ? normalized : `${normalized}-3d`;
+}
+
 export const PrepareReferencesInputSchema = z.object({
   references: z.array(z.object({
     url: z
@@ -803,11 +835,23 @@ export const PrepareReferencesInputSchema = z.object({
     }
     liveUrls.add(liveUrl);
     reference.assetRequirements.forEach((asset, assetIndex) => {
-      if (ids.has(asset.id)) {
+      const normalizedAssetId = asset.id.toLowerCase();
+      if (ids.has(normalizedAssetId)) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Duplicate asset ID: ${asset.id}`, path: ["references", referenceIndex, "assetRequirements", assetIndex, "id"] });
       }
-      ids.add(asset.id);
+      ids.add(normalizedAssetId);
     });
+    const hasExplicit3d = reference.assetRequirements.some((asset) => asset.kind === "3d-model" || asset.kind === "3d-render");
+    if (reference.requires3d && !hasExplicit3d) {
+      const generatedId = generated3dAssetId(reference.captureName);
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,79}$/.test(generatedId)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Generated 3D asset ID must be 1 to 80 valid characters: ${generatedId}`, path: ["references", referenceIndex, "captureName"] });
+      }
+      if (ids.has(generatedId.toLowerCase())) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Generated 3D asset ID collides with another asset: ${generatedId}`, path: ["references", referenceIndex, "requires3d"] });
+      }
+      ids.add(generatedId.toLowerCase());
+    }
   });
 });
 
@@ -824,18 +868,18 @@ server.registerTool("design_prepare_references", {
   for (const reference of params.references) {
     try {
       const awardVerification = await verifyAwwwardsSotd(reference.url);
-      const assetRequirements = reference.assetRequirements.length > 0
-        ? reference.assetRequirements
-        : reference.requires3d
-          ? [{
-            id: `${reference.captureName}-3d`,
+      const has3d = reference.assetRequirements.some((asset) => asset.kind === "3d-model" || asset.kind === "3d-render");
+      const assetRequirements = [
+        ...reference.assetRequirements,
+        ...(reference.requires3d && !has3d ? [{
+            id: generated3dAssetId(reference.captureName),
             kind: "3d-render" as const,
             role: "3D asset indicated by the selected reference",
             preferredFormats: ["glb", "png"] as const,
             delivery: "web" as const,
             prompt: reference.role,
-          }]
-          : [];
+          }] : []),
+      ];
       references.push({
         ...reference,
         captureName: reference.captureName.toLowerCase(),
@@ -874,6 +918,12 @@ server.registerTool("design_prepare_references", {
       isError: true,
       content: [{ type: "text" as const, text: `Blocked: no references passed Awwwards verification.\n\n${text}` }],
       structuredContent: { status: "blocked", reasonCode: "references.all_failed", references, failures, count: 0, assetPlan },
+    };
+  }
+  if (failures.length > 0) {
+    return {
+      content: [{ type: "text" as const, text: `Partial: ${references.length} reference(s) verified; ${failures.length} failed and require review.\n\n${text}` }],
+      structuredContent: { status: "partial", reasonCode: "references.some_failed", references, failures, count: references.length, assetPlan },
     };
   }
   return { content: [{ type: "text" as const, text }], structuredContent: { status: "ready", references, failures, count: references.length, assetPlan } };

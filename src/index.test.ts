@@ -155,6 +155,34 @@ describe("Awwwards source policy & helpers", () => {
     } as unknown as Response);
     await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/oversized")).rejects.toThrow("exceeded");
 
+    const readOversizedBody = vi.fn();
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-length": String(AWWWARDS_MAX_HTML_BYTES + 1) }),
+      text: readOversizedBody,
+    } as unknown as Response);
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/oversized-header")).rejects.toThrow(
+      `Awwwards award verification response exceeded ${AWWWARDS_MAX_HTML_BYTES} bytes`,
+    );
+    expect(readOversizedBody).not.toHaveBeenCalled();
+
+    let canceled = false;
+    const streamedOversize = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(new TextEncoder().encode("é".repeat(Math.ceil(AWWWARDS_MAX_HTML_BYTES / 2) + 1))); },
+      cancel() { canceled = true; },
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      url: "https://www.awwwards.com/sites/oversized-stream",
+      body: streamedOversize,
+    } as unknown as Response);
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/oversized-stream")).rejects.toThrow(
+      `Awwwards award verification response exceeded ${AWWWARDS_MAX_HTML_BYTES} bytes`,
+    );
+    expect(canceled).toBe(true);
+
     globalThis.fetch = vi.fn().mockRejectedValue(new DOMException("aborted", "AbortError"));
     await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/aborted")).rejects.toThrow("timed out");
 
@@ -281,7 +309,8 @@ describe("Awwwards source policy & helpers", () => {
 
 describe("Formatting helpers", () => {
   it("formats search results with empty array", () => {
-    expect(formatSearchResults([], "empty")).toBe('No results found for "empty".');
+    expect(formatSearchResults([], "empty")).toContain('No results found for "empty".');
+    expect(formatSearchResults([], "empty")).toContain("Search is provisional");
   });
 
   it("formats search results correctly", () => {
@@ -298,6 +327,7 @@ describe("Formatting helpers", () => {
     );
     expect(formatted).toContain("# Design References: \"ref\"");
     expect(formatted).toContain("Snippet text");
+    expect(formatted).toContain("Search matches are provisional");
   });
 
   it("truncates long search results exceeding CHARACTER_LIMIT", () => {
@@ -665,10 +695,23 @@ describe("Schema validations", () => {
     expect(isLiveSiteUrl("http://192.168.1.1/private")).toBe(false);
     expect(isLiveSiteUrl("http://172.16.0.1/private")).toBe(false);
     expect(isLiveSiteUrl("http://169.254.169.254/private")).toBe(false);
+    expect(isLiveSiteUrl("http://169.254.1.5/private")).toBe(false);
+    expect(isLiveSiteUrl("http://0.0.0.0/private")).toBe(false);
+    expect(isLiveSiteUrl("http://0.10.0.1/private")).toBe(false);
+    expect(isLiveSiteUrl("http://100.64.0.1/private")).toBe(false);
+    expect(isLiveSiteUrl("http://192.88.99.1/private")).toBe(false);
+    expect(isLiveSiteUrl("http://198.18.0.1/private")).toBe(false);
+    expect(isLiveSiteUrl("http://198.51.100.1/private")).toBe(false);
+    expect(isLiveSiteUrl("http://203.0.113.1/private")).toBe(false);
     expect(isLiveSiteUrl("http://[::1]/private")).toBe(false);
+    expect(isLiveSiteUrl("http://[::]/private")).toBe(false);
+    expect(isLiveSiteUrl("http://[::ffff:127.0.0.1]/private")).toBe(false);
+    expect(isLiveSiteUrl("http://[::ffff:7f00:1]/private")).toBe(false);
     expect(isLiveSiteUrl("http://[fc00::1]/private")).toBe(false);
     expect(isLiveSiteUrl("http://[fd00::1]/private")).toBe(false);
     expect(isLiveSiteUrl("http://[fe80::1]/private")).toBe(false);
+    expect(isLiveSiteUrl("http://[febf::1]/private")).toBe(false);
+    expect(isLiveSiteUrl("http://[ff02::1]/private")).toBe(false);
     expect(
       PrepareReferencesInputSchema.safeParse({
         references: [{
@@ -937,6 +980,27 @@ describe("Server request routing & tool execution via MCP client", () => {
     const structured = (res as ToolCallResultWithStructured<{ count: number; results: Array<{ title: string }> }>).structuredContent!;
     expect(structured.count).toBe(1);
     expect(structured.results[0].title).toBe("Awwwards SOTD Reference");
+    expect((res as ToolCallResultWithStructured<{ status: string; verified: boolean; provisional: boolean }>).structuredContent).toMatchObject({
+      status: "partial",
+      verified: false,
+      provisional: true,
+    });
+  });
+
+  it("marks empty search outcomes blocked with a reason", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ organic: [] }),
+    } as unknown as Response);
+    const res = await client.callTool({ name: "design_search_references", arguments: { query: "empty design" } });
+    expect((res as ToolCallResultWithStructured).structuredContent).toMatchObject({
+      status: "blocked",
+      reasonCode: "search.no_results",
+      count: 0,
+      provisional: true,
+      verified: false,
+    });
   });
 
   it("handles error in design_search_references", async () => {
@@ -1253,6 +1317,25 @@ describe("Server request routing & tool execution via MCP client", () => {
     });
   });
 
+  it("returns partial when only some selected references verify", async () => {
+    globalThis.fetch = vi.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => VERIFIED_SOTD_HTML } as unknown as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "<title>Honorable Mention</title>" } as unknown as Response);
+    const res = await client.callTool({
+      name: "design_prepare_references",
+      arguments: { references: [
+        { url: "https://www.awwwards.com/sites/good", role: "good", captureName: "good", liveUrl: "https://example.com/good" },
+        { url: "https://www.awwwards.com/sites/bad", role: "bad", captureName: "bad", liveUrl: "https://example.com/bad" },
+      ] },
+    });
+    expect((res as ToolCallResultWithStructured).structuredContent).toMatchObject({
+      status: "partial",
+      reasonCode: "references.some_failed",
+      count: 1,
+      failures: [{ captureName: "bad" }],
+    });
+  });
+
   it("executes design_prepare_references with single reference and auto-generated 3d", async () => {
     const res = await client.callTool({
       name: "design_prepare_references",
@@ -1277,6 +1360,53 @@ describe("Server request routing & tool execution via MCP client", () => {
     const text = ((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text;
     expect(text).toContain("Prepared 1 reference.");
     expect(text).toContain("## Asset plan");
+    expect(structured.assetPlan[0]).toMatchObject({ assetId: "hero-3d" });
+  });
+
+  it("adds the generated 3D route alongside explicitly requested 2D assets", async () => {
+    const res = await client.callTool({
+      name: "design_prepare_references",
+      arguments: { references: [{
+        url: "https://www.awwwards.com/sites/mixed-assets",
+        role: "hero",
+        captureName: "mixed-assets",
+        liveUrl: "https://example.com/mixed-assets",
+        requires3d: true,
+        assetRequirements: [{
+          id: "hero-animation", kind: "lottie", role: "hero animation",
+          preferredFormats: ["lottie"], delivery: "web", animation: { durationMs: 500 },
+        }],
+      }] },
+    });
+    const plan = (res as ToolCallResultWithStructured<{ assetPlan: Array<{ assetId: string; route: string }> }>).structuredContent!.assetPlan;
+    expect(plan.map((asset) => asset.assetId)).toEqual(["hero-animation", "mixed-assets-3d"]);
+    expect(plan[1].route).toBe("blender");
+  });
+
+  it("rejects generated 3D IDs that exceed the asset ID bound or collide", () => {
+    const tooLongName = `a${"b".repeat(79)}`;
+    expect(PrepareReferencesInputSchema.safeParse({ references: [{
+      url: "https://www.awwwards.com/sites/too-long", role: "long", captureName: tooLongName,
+      liveUrl: "https://example.com/long", requires3d: true,
+    }] }).success).toBe(false);
+    expect(PrepareReferencesInputSchema.safeParse({ references: [
+      { url: "https://www.awwwards.com/sites/first", role: "first", captureName: "hero", liveUrl: "https://example.com/first", requires3d: true },
+      { url: "https://www.awwwards.com/sites/second", role: "second", captureName: "second", liveUrl: "https://example.com/second", assetRequirements: [{
+        id: "hero-3d", kind: "3d-render", role: "existing asset", preferredFormats: ["png"], delivery: "web",
+      }] },
+    ] }).success).toBe(false);
+    expect(PrepareReferencesInputSchema.safeParse({ references: [
+      { url: "https://www.awwwards.com/sites/first", role: "first", captureName: "first", liveUrl: "https://example.com/first", assetRequirements: [{
+        id: "hero-3d", kind: "animated-svg", role: "existing asset", preferredFormats: ["svg"], delivery: "web",
+      }] },
+      { url: "https://www.awwwards.com/sites/second", role: "second", captureName: "hero", liveUrl: "https://example.com/second", requires3d: true },
+    ] }).success).toBe(false);
+    expect(PrepareReferencesInputSchema.safeParse({ references: [{
+      url: "https://www.awwwards.com/sites/same-reference", role: "reference", captureName: "same",
+      liveUrl: "https://example.com/same", requires3d: true, assetRequirements: [{
+        id: "same-3d", kind: "3d-render", role: "explicit model", preferredFormats: ["png"], delivery: "web",
+      }],
+    }] }).success).toBe(true);
   });
 
   it("routes a complex Lottie request to explicitly preferred SVGator", async () => {
