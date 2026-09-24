@@ -16,11 +16,11 @@ The token extraction tool reads an Awwwards.com page and reports its colors, fon
 
 ## Tools
 
-**`design_search_references`** — Search current and past Awwwards Site of the Day winners. Honorable Mentions, nominees, and pages without an explicit, dated SOTD marker are filtered out.
+**`design_search_references`** — Search current and past Awwwards Site of the Day winners. Honorable Mentions, nominees, and pages without an explicit, dated SOTD marker are filtered out. Search matches are provisional: snippets do not verify the award, and a selected page must pass `design_prepare_references` before the host treats it as verified. Structured results report `status: "partial"`, `reasonCode: "search.selection_required"`, `verified: false`, and `provisional: true`; no matches report `status: "blocked"` with `reasonCode: "search.no_results"`.
 
-**`design_search_styles`** — Search SOTD winners for a specific aesthetic direction. It combines image and web results for color, typography, layout, or animation queries, and keeps images only when their page also passed the SOTD filter.
+**`design_search_styles`** — Search SOTD winners for a specific aesthetic direction. It combines image and web results for color, typography, layout, or animation queries, and keeps images only when their page also passed the SOTD filter. Results remain provisional until the selected live page is verified.
 
-**`design_prepare_references`** — Fetch each selected Awwwards page and verify its title or award heading identifies a dated Site of the Day win before normalizing the handoff. Each reference also requires a distinct, valid non-Awwwards `liveUrl` and a `captureName` accepted by the live capture server (1–81 letters, numbers, dots, dashes, or underscores). Honorable Mentions, nominees, missing award metadata, non-2xx responses, and timeouts fail the handoff.
+**`design_prepare_references`** — Fetch each selected Awwwards page and verify its title or award heading identifies a dated Site of the Day win before normalizing the handoff. Each reference also requires a distinct, valid non-Awwwards `liveUrl` and a `captureName` accepted by the live capture server (1–81 letters, numbers, dots, dashes, or underscores). Honorable Mentions, nominees, missing award metadata, non-2xx responses, and timeouts fail that reference. Structured status is `ready` only when all references verify, `partial` with `reasonCode: "references.some_failed"` when only some verify, and `blocked` with `reasonCode: "references.all_failed"` when none verify.
 
 **`design_extract_tokens`** — Extract design tokens from an Awwwards.com page. Supports `dark_mode` and `mobile` flags. Requires `dembrandt` installed globally (`npm install -g dembrandt`).
 
@@ -42,8 +42,10 @@ npm install -g dembrandt
 ### Claude Code
 
 ```bash
-claude mcp add design-inspiration -e SERPER_API_KEY=your-key-here -- node /path/to/design-inspiration-mcp-server/dist/index.js
+claude mcp add design-inspiration -- node /path/to/design-inspiration-mcp-server/dist/index.js
 ```
+
+Provide `SERPER_API_KEY` through your operating system's secret store or a private launcher that reads it at startup. Do not put the key in a shell command, checked-in config, or shared MCP settings file; command-line values can remain in shell history and process listings.
 
 ### Any MCP client (stdio)
 
@@ -53,12 +55,12 @@ claude mcp add design-inspiration -e SERPER_API_KEY=your-key-here -- node /path/
     "type": "stdio",
     "command": "node",
     "args": ["/path/to/design-inspiration-mcp-server/dist/index.js"],
-    "env": {
-      "SERPER_API_KEY": "your-key-here"
-    }
+    "env": {}
   }
 }
 ```
+
+Configure the MCP client to inherit the variable from a protected launcher or user-level secret manager. Do not replace the empty example with a literal API key.
 
 ## Build from source
 
@@ -71,7 +73,7 @@ npm run build
 
 ## How it actually works
 
-The search tools append the exact `"Site of the Day"` marker and `(site:awwwards.com/sites)` to each query. They call Serper's `/images` or `/search` endpoint, restrict links to Awwwards site pages, and reject results marked Honorable Mention, Nominee, or unknown. A result must include the award marker and a month/day/year signal before it can enter the shortlist.
+The search tools append the exact `"Site of the Day"` marker and `(site:awwwards.com/sites)` to each query. They call Serper's `/images` or `/search` endpoint, restrict links to Awwwards site pages, and reject results marked Honorable Mention, Nominee, or unknown. A result must include the award marker and a month/day/year signal before it can enter the shortlist. This filter uses indexed snippets and is provisional; `design_prepare_references` fetches the selected Awwwards page and provides authoritative verification for this workflow.
 
 The `design_search_styles` tool runs both endpoints in parallel (`Promise.all`) to get images and articles for the same query.
 
@@ -94,7 +96,7 @@ Search for specific UI patterns, not generic terms:
 "good design"
 ```
 
-The SOTD filter is a quality floor, not a substitute for review. Shortlist at least three returned pages, check that each live URL still works, and capture the selected site before using its motion as implementation evidence. If the search returns no qualifying pages, report that gap instead of falling back to Honorable Mentions or nominees.
+The SOTD filter is a quality floor, not a substitute for review. Shortlist at least three returned pages, check that each live URL still works, and capture the selected site before using its motion as implementation evidence. If the search returns no qualifying pages, the tool reports a blocked result; report that gap instead of falling back to Honorable Mentions or nominees. URL validation blocks private, loopback, link-local, unspecified, and mapped IPv6 literals, but does not resolve DNS. The capture service must independently enforce public-address egress after DNS resolution.
 
 You can download a returned image URL and have Claude view it directly:
 
