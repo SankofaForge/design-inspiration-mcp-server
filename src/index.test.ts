@@ -190,6 +190,28 @@ describe("Awwwards source policy & helpers", () => {
     await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/unknown-error")).rejects.toThrow("verification failed");
   });
 
+  it.each([
+    {
+      cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+      message: "Awwwards award verification fetch failed [ECONNREFUSED]: connect ECONNREFUSED",
+    },
+    {
+      cause: new Error("socket hang up"),
+      message: "Awwwards award verification fetch failed: socket hang up",
+    },
+    {
+      cause: Object.assign(new Error("unexpected network error"), { code: 503 }),
+      message: "Awwwards award verification fetch failed: unexpected network error",
+    },
+    {
+      cause: "network reset",
+      message: "fetch failed",
+    },
+  ])("reports nested fetch failures safely", async ({ cause, message }) => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new TypeError("fetch failed", { cause }));
+    await expect(verifyAwwwardsSotd("https://www.awwwards.com/sites/fetch-error")).rejects.toThrow(message);
+  });
+
   it("aborts a fetch when the verification timeout expires", async () => {
     vi.useFakeTimers();
     globalThis.fetch = vi.fn((_url, init) => new Promise((_resolve, reject) => {
