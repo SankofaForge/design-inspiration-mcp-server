@@ -171,7 +171,14 @@ export async function verifyAwwwardsSotd(value: string): Promise<AwardVerificati
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error(`Awwwards award verification timed out after ${AWWWARDS_FETCH_TIMEOUT_MS / 1000}s: ${url}`);
     }
-    if (error instanceof Error) throw error;
+    if (error instanceof Error) {
+      if (error.message === "fetch failed" && error.cause instanceof Error) {
+        const cause = error.cause;
+        const code = "code" in cause && typeof cause.code === "string" ? ` [${cause.code}]` : "";
+        throw new Error(`Awwwards award verification fetch failed${code}: ${cause.message}`, { cause: error });
+      }
+      throw error;
+    }
     throw new Error(`Awwwards award verification failed: ${String(error)}`);
   } finally {
     clearTimeout(timeout);
