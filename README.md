@@ -24,6 +24,11 @@ The token extraction tool reads an Awwwards.com page and reports its colors, fon
 
 **`design_extract_tokens`** — Extract design tokens from an Awwwards.com page. Supports `dark_mode` and `mobile` flags. Requires `dembrandt` installed globally (`npm install -g dembrandt`).
 
+All four tools accept `dry_run` (default `false`). Set it to `true` to validate
+inputs and return a request plan without contacting Serper or Awwwards, or
+running `dembrandt`. A dry-run response uses `status: "dry_run"` and does not
+claim that search results or awards were verified.
+
 The supported search tools query Awwwards.com. They accept a `num` parameter to control result count.
 
 ## Setup
