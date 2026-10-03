@@ -1009,6 +1009,29 @@ describe("Server request routing & tool execution via MCP client", () => {
     });
   });
 
+  it("returns the design reference request without sending it in dry-run mode", async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
+
+    const res = await client.callTool({
+      name: "design_search_references",
+      arguments: { query: "design system", num: 5, dry_run: true },
+    });
+
+    const structured = (res as ToolCallResultWithStructured<{
+      status: string;
+      dry_run: boolean;
+      plannedRequest: { endpoint: string; body: { q: string; num: number } };
+    }>).structuredContent!;
+    expect(structured).toMatchObject({
+      status: "dry_run",
+      dry_run: true,
+      plannedRequest: { endpoint: "/search", body: { num: 5 } },
+    });
+    expect(structured.plannedRequest.body.q).toContain(SOTD_QUERY);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("marks empty search outcomes blocked with a reason", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -1087,6 +1110,30 @@ describe("Server request routing & tool execution via MCP client", () => {
     }
   );
 
+  it("returns both design style requests without sending them in dry-run mode", async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
+
+    const res = await client.callTool({
+      name: "design_search_styles",
+      arguments: { style: "brutalist", type: "animation", num: 3, dry_run: true },
+    });
+
+    const structured = (res as ToolCallResultWithStructured<{
+      status: string;
+      dry_run: boolean;
+      plannedRequests: Array<{ endpoint: string; body: { q: string; num: number } }>;
+    }>).structuredContent!;
+    expect(structured.status).toBe("dry_run");
+    expect(structured.dry_run).toBe(true);
+    expect(structured.plannedRequests.map((request) => request.endpoint)).toEqual([
+      "/images",
+      "/search",
+    ]);
+    expect(structured.plannedRequests[0].body).toMatchObject({ num: 3 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("handles truncation in design_search_styles", async () => {
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/images")) {
@@ -1155,6 +1202,41 @@ describe("Server request routing & tool execution via MCP client", () => {
     expect(structured.dark_mode).toBe(true);
     expect(structured.mobile).toBe(true);
     expect(structured.tokens.colors.bg).toBe("#000");
+  });
+
+  it("returns token extraction steps without fetching or running dembrandt in dry-run mode", async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
+    const execFileMock = vi.mocked(childProcess.execFile);
+    execFileMock.mockClear();
+
+    const withOptions = await client.callTool({
+      name: "design_extract_tokens",
+      arguments: {
+        url: "https://www.awwwards.com/sites/portfolio",
+        dark_mode: true,
+        mobile: true,
+        dry_run: true,
+      },
+    });
+    const withoutOptions = await client.callTool({
+      name: "design_extract_tokens",
+      arguments: { url: "https://www.awwwards.com/sites/portfolio", dry_run: true },
+    });
+
+    const withOptionsResult = (withOptions as ToolCallResultWithStructured<{
+      status: string;
+      plannedSteps: string[];
+    }>).structuredContent!;
+    const withoutOptionsResult = (withoutOptions as ToolCallResultWithStructured<{
+      plannedSteps: string[];
+    }>).structuredContent!;
+    expect(withOptionsResult.status).toBe("dry_run");
+    expect(withOptionsResult.plannedSteps).toContain("--dark-mode");
+    expect(withOptionsResult.plannedSteps).toContain("--mobile");
+    expect(withoutOptionsResult.plannedSteps).toHaveLength(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
   it("re-verifies the Awwwards page before extracting tokens", async () => {
@@ -1293,6 +1375,89 @@ describe("Server request routing & tool execution via MCP client", () => {
     expect(text).not.toContain("## Asset plan");
   });
 
+  it("plans references and asset routes without fetching Awwwards pages in dry-run mode", async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
+
+    const res = await client.callTool({
+      name: "design_prepare_references",
+      arguments: {
+        dry_run: true,
+        references: [
+          {
+            url: "https://www.awwwards.com/sites/no-assets#preview",
+            role: "plain reference",
+            captureName: "No-Assets",
+            liveUrl: "https://example.com/no-assets",
+          },
+          {
+            url: "https://www.awwwards.com/sites/generated-assets",
+            role: "generated assets",
+            captureName: "Generated",
+            liveUrl: "https://example.com/generated-assets",
+            requires3d: true,
+            assetRequirements: [
+              {
+                id: "hero-lottie",
+                kind: "lottie",
+                role: "hero animation",
+                preferredFormats: ["lottie"],
+                delivery: "web",
+                animation: { durationMs: 500 },
+              },
+              {
+                id: "nav-svg",
+                kind: "animated-svg",
+                role: "navigation animation",
+                preferredFormats: ["svg"],
+                delivery: "web",
+                animation: { durationMs: 500 },
+              },
+            ],
+          },
+          {
+            url: "https://www.awwwards.com/sites/explicit-3d",
+            role: "model reference",
+            captureName: "Explicit-3D",
+            liveUrl: "https://example.com/explicit-3d",
+            requires3d: true,
+            assetRequirements: [
+              {
+                id: "hero-model",
+                kind: "3d-model",
+                role: "hero model",
+                preferredFormats: ["glb"],
+                delivery: "web",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const structured = (res as ToolCallResultWithStructured<{
+      status: string;
+      dry_run: boolean;
+      verified: boolean;
+      references: Array<{ captureName: string; url: string; verification: { status: string } }>;
+      assetPlan: Array<{ assetId: string; route: string; nextAction: string }>;
+    }>).structuredContent!;
+    expect(structured).toMatchObject({ status: "dry_run", dry_run: true, verified: false });
+    expect(structured.references[0]).toMatchObject({
+      captureName: "no-assets",
+      url: "https://www.awwwards.com/sites/no-assets",
+      verification: { status: "not_run" },
+    });
+    expect(structured.assetPlan.map(({ assetId, route }) => [assetId, route])).toEqual([
+      ["hero-lottie", "lottie-creator"],
+      ["nav-svg", "svgator"],
+      ["generated-3d", "blender"],
+      ["hero-model", "blender"],
+    ]);
+    expect(structured.assetPlan.every((asset) => asset.nextAction.length > 0)).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("fails preparation when the selected page is not an SOTD winner", async () => {
     mockVerifiedSotdPage("<title>Memo - Awwwards Honorable Mention</title>");
 
@@ -1315,6 +1480,33 @@ describe("Server request routing & tool execution via MCP client", () => {
     expect(((res as ToolCallResultWithStructured).content?.[0] as { type: "text"; text: string }).text).toContain(
       "not a verified Site of the Day winner (honorable-mention)"
     );
+  });
+
+  it("records non-Error failures while preparing references", async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, "setTimeout").mockImplementation((callback, timeout, ...args) => {
+      if (timeout === AWWWARDS_FETCH_TIMEOUT_MS) throw "verification-failure-string";
+      return originalSetTimeout(callback, timeout, ...args);
+    });
+
+    const res = await client.callTool({
+      name: "design_prepare_references",
+      arguments: {
+        references: [
+          {
+            url: "https://www.awwwards.com/sites/timeout-setup-failure",
+            role: "hero reference",
+            captureName: "hero-reference",
+            liveUrl: "https://example.com/hero",
+          },
+        ],
+      },
+    });
+
+    expect((res as ToolCallResultWithStructured<{ status: string; failures: Array<{ reason: string }> }>).structuredContent).toMatchObject({
+      status: "blocked",
+      failures: [{ reason: "verification-failure-string" }],
+    });
   });
 
   it("blocks preparation when every selected reference fails", async () => {
