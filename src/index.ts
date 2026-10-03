@@ -400,6 +400,7 @@ export const SearchReferencesInputSchema = z
       .literal("sotd")
       .default("sotd")
       .describe("Only current or past Site of the Day winners are eligible"),
+    dry_run: z.boolean().default(false).describe("If true, return the Serper request plan without sending it"),
   })
   .strict();
 
@@ -407,7 +408,7 @@ type SearchReferencesInput = z.infer<typeof SearchReferencesInputSchema>;
 
 server.registerTool("design_search_references", {
   title: "Search design references",
-  description: `Search Awwwards.com for current or past Site of the Day winners. Honorable Mentions, nominees, and unverified Awwwards pages are excluded.`,
+  description: `Search Awwwards Site of the Day winners. Exclude Honorable Mentions, nominees, and unverified pages. With dry_run=true, return the Serper request plan without sending it.`,
   inputSchema: SearchReferencesInputSchema,
   annotations: {
     readOnlyHint: true,
@@ -418,6 +419,21 @@ server.registerTool("design_search_references", {
 }, async (params: SearchReferencesInput) => {
   try {
     const siteQuery = buildSiteQuery(params.query, params.awardTier);
+    if (params.dry_run) {
+      return {
+        content: [{ type: "text" as const, text: "Dry run: the Serper search request was not sent." }],
+        structuredContent: {
+          status: "dry_run",
+          reasonCode: "dry_run.request_not_sent",
+          dry_run: true,
+          verified: false,
+          provisional: true,
+          query: params.query,
+          awardTier: params.awardTier,
+          plannedRequest: { method: "POST", endpoint: "/search", body: { q: siteQuery, num: params.num } },
+        },
+      };
+    }
     const data = await serperRequest<SerperSearchResponse>("/search", {
       q: siteQuery,
       num: params.num,
@@ -482,6 +498,7 @@ export const SearchStyleInputSchema = z
       .literal("sotd")
       .default("sotd")
       .describe("Only current or past Site of the Day winners are eligible"),
+    dry_run: z.boolean().default(false).describe("If true, return both Serper request plans without sending them"),
   })
   .strict();
 
@@ -489,7 +506,7 @@ type SearchStyleInput = z.infer<typeof SearchStyleInputSchema>;
 
 server.registerTool("design_search_styles", {
   title: "Search design styles",
-  description: `Search current or past Awwwards Site of the Day winners for a specific aesthetic direction. Honorable Mentions, nominees, and unverified pages are excluded from both image and web results.`,
+  description: `Search Awwwards Site of the Day winners for a design style. Exclude Honorable Mentions, nominees, and unverified pages. With dry_run=true, return both request plans without sending them.`,
   inputSchema: SearchStyleInputSchema,
   annotations: {
     readOnlyHint: true,
@@ -509,6 +526,24 @@ server.registerTool("design_search_styles", {
 
     const query = `${params.style} ${typeKeywords[params.type]} UI design inspiration`;
     const fullQuery = buildSiteQuery(query, params.awardTier);
+    if (params.dry_run) {
+      return {
+        content: [{ type: "text" as const, text: "Dry run: the Serper image and web search requests were not sent." }],
+        structuredContent: {
+          status: "dry_run",
+          reasonCode: "dry_run.requests_not_sent",
+          dry_run: true,
+          verified: false,
+          provisional: true,
+          style: params.style,
+          type: params.type,
+          plannedRequests: [
+            { method: "POST", endpoint: "/images", body: { q: fullQuery, num: params.num } },
+            { method: "POST", endpoint: "/search", body: { q: fullQuery, num: params.num } },
+          ],
+        },
+      };
+    }
 
     const [imageData, searchData] = await Promise.all([
       serperRequest<SerperImagesResponse>("/images", { q: fullQuery, num: params.num }),
@@ -708,6 +743,7 @@ export const ExtractTokensInputSchema = z
       .boolean()
       .default(false)
       .describe("Extract from mobile viewport (375px)"),
+    dry_run: z.boolean().default(false).describe("If true, return the verification and extraction plan without network or process calls"),
   })
   .strict();
 
@@ -715,7 +751,7 @@ type ExtractTokensInput = z.infer<typeof ExtractTokensInputSchema>;
 
 server.registerTool("design_extract_tokens", {
   title: "Extract design tokens from website",
-  description: `Extract design tokens from an Awwwards.com page using a headless browser. The URL must use the Awwwards.com domain.`,
+  description: `Extract design tokens from an Awwwards page. With dry_run=true, return the verification and extraction steps without fetching the page or running dembrandt.`,
   inputSchema: ExtractTokensInputSchema,
   annotations: {
     readOnlyHint: true,
@@ -726,6 +762,24 @@ server.registerTool("design_extract_tokens", {
 }, async (params: ExtractTokensInput) => {
   try {
     const url = normalizeHttpUrl(params.url);
+    if (params.dry_run) {
+      const flags = [
+        ...(params.dark_mode ? ["--dark-mode"] : []),
+        ...(params.mobile ? ["--mobile"] : []),
+      ];
+      return {
+        content: [{ type: "text" as const, text: "Dry run: the Awwwards page was not fetched and dembrandt was not run." }],
+        structuredContent: {
+          status: "dry_run",
+          reasonCode: "dry_run.extraction_not_run",
+          dry_run: true,
+          url,
+          dark_mode: params.dark_mode,
+          mobile: params.mobile,
+          plannedSteps: ["Verify the dated Awwwards Site of the Day award", "Run dembrandt with --json-only", ...flags],
+        },
+      };
+    }
     await verifyAwwwardsSotd(url);
     const flags: string[] = [];
     if (params.dark_mode) flags.push("--dark-mode");
@@ -806,6 +860,7 @@ function generated3dAssetId(captureName: string): string {
 }
 
 export const PrepareReferencesInputSchema = z.object({
+  dry_run: z.boolean().default(false).describe("If true, validate and plan the handoff without fetching Awwwards pages"),
   references: z.array(z.object({
     url: z
       .string()
@@ -866,10 +921,62 @@ type PrepareReferencesInput = z.infer<typeof PrepareReferencesInputSchema>;
 
 server.registerTool("design_prepare_references", {
   title: "Prepare design references",
-  description: "Verify each selected Awwwards page is a dated Site of the Day winner, then normalize the references. Does not capture or invoke other MCPs.",
+  description: "Verify selected pages as dated Awwwards Site of the Day winners and build a handoff. With dry_run=true, validate and plan without fetching pages.",
   inputSchema: PrepareReferencesInputSchema,
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
 }, async (params: PrepareReferencesInput) => {
+  if (params.dry_run) {
+    const references = params.references.map((reference) => {
+      const has3d = reference.assetRequirements.some((asset) => asset.kind === "3d-model" || asset.kind === "3d-render");
+      const assetRequirements = [
+        ...reference.assetRequirements,
+        ...(reference.requires3d && !has3d ? [{
+          id: generated3dAssetId(reference.captureName),
+          kind: "3d-render" as const,
+          role: "3D asset indicated by the selected reference",
+          preferredFormats: ["glb", "png"] as const,
+          delivery: "web" as const,
+          prompt: reference.role,
+        }] : []),
+      ];
+      return {
+        ...reference,
+        captureName: reference.captureName.toLowerCase(),
+        url: canonicalizeUrl(reference.url),
+        liveUrl: reference.liveUrl.trim(),
+        verification: { status: "not_run" as const },
+        assetRequirements,
+      };
+    });
+    const assetPlan = references.flatMap((reference) => reference.assetRequirements.map((asset) => ({
+      assetId: asset.id,
+      route: asset.kind === "3d-model" || asset.kind === "3d-render"
+        ? "blender" as const
+        : (asset.preferredTool ?? (asset.kind === "lottie" ? "lottie-creator" : "svgator")) as "svgator" | "lottie-creator",
+      reason: `${asset.kind} requested for ${reference.captureName}`,
+      outputs: asset.preferredFormats,
+      nextAction: asset.kind === "3d-model" || asset.kind === "3d-render"
+        ? "Create or modify a Blender scene and export web-ready assets"
+        : "Create or edit the animation in the selected 2D animation MCP and export the requested formats",
+      sourceReference: reference.url,
+      liveSiteUrl: reference.liveUrl,
+      asset,
+    })));
+    return {
+      content: [{ type: "text" as const, text: "Dry run: references were validated and planned; no Awwwards pages were fetched." }],
+      structuredContent: {
+        status: "dry_run",
+        reasonCode: "dry_run.verification_not_run",
+        dry_run: true,
+        verified: false,
+        references,
+        failures: [],
+        count: references.length,
+        assetPlan,
+        plannedNetworkRequests: references.map((reference) => reference.url),
+      },
+    };
+  }
   const references = [];
   const failures = [];
   for (const reference of params.references) {
