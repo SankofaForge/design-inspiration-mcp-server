@@ -22,7 +22,7 @@
     "status": "provided",
     "source": {
       "mode": "native-video",
-      "artifactPath": "artifacts/design-inspiration/site-motion-capture/reference-site-motion.webm",
+      "artifactPath": "artifacts/design-inspiration/capture-evidence/reference-site-motion.webm",
       "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "durationSeconds": 12.5,
       "captureRunId": "reference-site-motion-run",
