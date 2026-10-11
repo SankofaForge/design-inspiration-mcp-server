@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add `design_extract_motion`, which records a live site's motion mechanisms:
+  element property traces, Web Animations, CSS keyframes and scroll-driven
+  rules, WebGL shaders and uniforms, source-map recovery, library signatures,
+  and motion code hotspots. Adds `playwright-core` 1.64.0.
 - Add required live-site URLs, capture-server-compatible names, duplicate checks,
   live-site asset provenance, and consistent MCP error responses for operational
   search and token failures.

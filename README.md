@@ -24,9 +24,11 @@ The token extraction tool reads an Awwwards.com page and reports its colors, fon
 
 **`design_extract_tokens`** — Extract design tokens from an Awwwards.com page. Supports `dark_mode` and `mobile` flags. Requires `dembrandt` installed globally (`npm install -g dembrandt`).
 
-All four tools accept `dry_run` (default `false`). Set it to `true` to validate
-inputs and return a request plan without contacting Serper or Awwwards, or
-running `dembrandt`. A dry-run response uses `status: "dry_run"` and does not
+**`design_extract_motion`** — Load a public live site (not an Awwwards page) in headless Chromium and record how its motion works. It drives a pointer sweep and a wheel-scroll path, then reports the elements whose `transform`, `opacity`, `clip-path`, `filter`, `translate`, `scale`, or `rotate` changed, Web Animations keyframes and timing, CSS `@keyframes` and scroll-driven rules, WebGL shader sources and uniform values, and runtime library globals. With `include_bundles` (default `true`) it also saves the page's scripts, recovers original source from exposed source maps, flags library signatures, and lists motion code hotspots such as eases, springs, and ScrollTrigger setups. Options: `viewport` (`desktop` or `mobile`), `reduced_motion`, `scroll_steps` (0–40), `webgl`, and `max_elements`. Requires `playwright-core` and a matching Chromium build in `PLAYWRIGHT_BROWSERS_PATH`.
+
+All five tools accept `dry_run` (default `false`). Set it to `true` to validate
+inputs and return a request plan without contacting Serper or Awwwards,
+running `dembrandt`, or launching a browser. A dry-run response uses `status: "dry_run"` and does not
 claim that search results or awards were verified.
 
 The supported search tools query Awwwards.com. They accept a `num` parameter to control result count.
@@ -83,6 +85,10 @@ The search tools append the exact `"Site of the Day"` marker and `(site:awwwards
 The `design_search_styles` tool runs both endpoints in parallel (`Promise.all`) to get images and articles for the same query.
 
 `design_extract_tokens` shells out to `dembrandt` (via `child_process.execFile`) with `--json-only`, parses the JSON output, and formats it into markdown and structured data. It has a 60-second timeout. `dembrandt` runs as a global CLI, so the project has no extra npm dependency for token extraction.
+
+`design_extract_motion` installs hooks before any site script runs. The hooks record `shaderSource` calls and named uniform writes on WebGL and WebGL2 contexts. After each pointer or scroll step it samples computed styles for up to 4,000 rendered elements and merges `document.getAnimations()`. Only elements that changed are reported. Each report section carries an evidence class: `runtime-exact` (keyframes, CSSOM rules, shaders, uniforms, globals), `runtime-observed` (sampled traces, which show values at settled steps but not the easing curve between them), `original-source` (files recovered from source maps), `bundle-signature` (string matches), and `code-reading-required` (minified hotspots). The full report, shaders, bundles, and recovered sources go to `DESIGN_INSPIRATION_ARTIFACT_DIR` (default: a `design-extract-motion` folder in the system temp directory). The browser blocks requests to private, loopback, and Awwwards addresses. Bundles are saved and searched as text and are never run outside the page. The `webgl` option enables SwiftShader software rendering so shaders compile on hosts without a GPU. Leave it off for sites you do not need shader evidence from.
+
+Use the evidence to understand a mechanism and reimplement it. Do not copy recovered source, shaders, or assets into another site unless their license allows it, and record the provenance when it does.
 
 Results are returned as both markdown (for display) and structured JSON (for programmatic use). Responses get truncated at 25,000 characters to avoid flooding the context window.
 
