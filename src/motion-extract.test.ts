@@ -28,6 +28,7 @@ import {
   resolveSourceMapUrl,
   safeRelativePath,
   summarizeTrace,
+  withoutProxyEnv,
   type CaptureDeps,
   type ExtractMotionInput,
   type MotionBrowser,
@@ -338,6 +339,10 @@ describe("motion extraction helpers", () => {
     expect(ExtractMotionInputSchema.safeParse({ url: "not a url" }).success).toBe(false);
     expect(ExtractMotionInputSchema.safeParse({ url: "https://example.com", scroll_steps: 41 }).success).toBe(false);
     expect(ExtractMotionInputSchema.safeParse({ url: "https://example.com", extra: 1 }).success).toBe(false);
+  });
+
+  it("drops proxy variables from the browser environment", () => {
+    expect(withoutProxyEnv({ PATH: "/bin", HTTPS_PROXY: "x", http_proxy: "y", ALL_PROXY: "z", NO_PROXY: "n", UNSET: undefined })).toEqual({ PATH: "/bin" });
   });
 
   it("builds default dependencies from the environment", () => {

@@ -395,16 +395,24 @@ export interface CaptureDeps {
   now(): Date;
 }
 
+// The MCP runtime exports an HTTPS_PROXY that only allows Awwwards. Playwright
+// turns proxy variables into a browser proxy, so the live-site browser drops them.
+export function withoutProxyEnv(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined && !/^(?:https?|all|no)_proxy$/i.test(entry[0]))
+  );
+}
+
 /* v8 ignore start */
 export async function launchChromium(options: { headless: boolean; args: string[] }): Promise<MotionBrowser> {
-  let chromium: { launch(options: { headless: boolean; args: string[] }): Promise<unknown> };
+  let chromium: { launch(options: { headless: boolean; args: string[]; env: Record<string, string> }): Promise<unknown> };
   try {
     ({ chromium } = await import("playwright-core"));
   } catch {
     throw new Error("playwright-core is not installed in the MCP runtime");
   }
   try {
-    return (await chromium.launch(options)) as MotionBrowser;
+    return (await chromium.launch({ ...options, env: withoutProxyEnv(process.env) })) as MotionBrowser;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Chromium failed to launch. Set PLAYWRIGHT_BROWSERS_PATH to a cache that contains the browser for playwright-core. ${message}`);
