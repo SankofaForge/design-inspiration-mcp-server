@@ -974,6 +974,7 @@ describe("Server request routing & tool execution via MCP client", () => {
       "design_search_references",
       "design_search_styles",
       "design_extract_tokens",
+      "design_extract_motion",
       "design_prepare_references",
     ]);
   });

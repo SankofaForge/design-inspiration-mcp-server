@@ -6,6 +6,14 @@ import { execFile } from "node:child_process";
 import { isIP } from "node:net";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import {
+  ExtractMotionInputSchema,
+  captureMotion,
+  defaultCaptureDeps,
+  formatMotionReport,
+  type CaptureDeps,
+  type ExtractMotionInput,
+} from "./motion-extract.js";
 
 export const SERPER_API_URL = "https://google.serper.dev";
 export const CHARACTER_LIMIT = 25000;
@@ -792,6 +800,80 @@ server.registerTool("design_extract_tokens", {
     return {
       content: [{ type: "text" as const, text }],
       structuredContent: { url, dark_mode: params.dark_mode, mobile: params.mobile, tokens },
+    };
+  } catch (error) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: "text" as const,
+          text: error instanceof Error ? error.message : `Error: ${String(error)}`,
+        },
+      ],
+    };
+  }
+});
+
+// --- design_extract_motion tool ---
+
+export const motionCapture: { deps: CaptureDeps } = { deps: defaultCaptureDeps(isLiveSiteUrl) };
+
+server.registerTool("design_extract_motion", {
+  title: "Extract motion mechanisms from a live site",
+  description: "Load a public live site in headless Chromium, drive a pointer and scroll path, and record how its motion works: element property traces, Web Animations keyframes and timing, CSS keyframes and scroll-driven rules, WebGL shader sources and uniform values, library signatures, source-map recovery, and motion code hotspots in its bundles. Writes report.json, shaders, bundles, and recovered sources to an artifact directory. With dry_run=true, return the plan without launching a browser.",
+  inputSchema: ExtractMotionInputSchema,
+  annotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: true,
+  },
+}, async (params: ExtractMotionInput) => {
+  try {
+    if (!isLiveSiteUrl(params.url)) {
+      throw new Error(`URL must be a public live site, not an Awwwards, local, or private address: ${params.url}`);
+    }
+    if (params.dry_run) {
+      return {
+        content: [{ type: "text" as const, text: "Dry run: no browser was launched and the site was not loaded." }],
+        structuredContent: {
+          status: "dry_run",
+          reasonCode: "dry_run.capture_not_run",
+          dry_run: true,
+          url: params.url,
+          viewport: params.viewport,
+          reduced_motion: params.reduced_motion,
+          plannedSteps: [
+            "Install WebGL and canvas hooks before page scripts run",
+            "Load the page and sample computed motion properties",
+            ...(params.viewport === "desktop" ? ["Sweep the pointer across five points"] : []),
+            ...(params.scroll_steps > 0 ? [`Scroll in ${params.scroll_steps} wheel steps and sample after each`] : []),
+            "Collect Web Animations, CSSOM keyframes, scroll-driven rules, shaders, and uniforms",
+            ...(params.include_bundles ? ["Save script bundles, probe source maps, and search for motion hotspots"] : []),
+          ],
+        },
+      };
+    }
+    const report = await captureMotion(params, motionCapture.deps);
+    return {
+      content: [{ type: "text" as const, text: formatMotionReport(report, CHARACTER_LIMIT) }],
+      structuredContent: {
+        status: report.status,
+        reasonCode: report.reasonCode,
+        url: report.url,
+        finalUrl: report.finalUrl,
+        artifactDir: report.artifactDir,
+        evidence: report.evidence,
+        signatures: report.signatures,
+        globals: report.page.globals,
+        traces: report.page.traces.slice(0, 20),
+        animations: report.page.animations.slice(0, 20),
+        shaders: report.page.webgl.shaders.length,
+        uniforms: Object.keys(report.page.webgl.uniforms),
+        sourceMaps: report.sourceMaps,
+        hotspots: report.hotspots.length,
+        uncertainties: report.uncertainties,
+      },
     };
   } catch (error) {
     return {
