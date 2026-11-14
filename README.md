@@ -1,18 +1,12 @@
 # design-inspiration
 
-MCP server that searches Awwwards.com for UI design inspiration. It works with Claude Code and other MCP clients.
-
-Uses the [Serper API](https://serper.dev) with a `site:awwwards.com` filter. It can also extract design tokens from Awwwards.com pages with a headless browser.
-
-Find inspiration, then extract exact tokens from sites you like.
+This MCP server searches Awwwards.com for UI design references and extracts design tokens from selected pages. It works with Claude Code and other MCP clients, using the [Serper API](https://serper.dev) with a `site:awwwards.com` filter for search.
 
 ## Why
 
 I wanted Claude to pull design references while building UI without leaving the terminal. The search tools return Awwwards.com pages that can be reviewed directly.
 
-The search side wraps Serper's image and web search endpoints with pre-configured site filters. Simple.
-
-The token extraction tool reads an Awwwards.com page and reports its colors, fonts, spacing, borders, and shadows.
+The search tools use Serper's image and web endpoints with site filters. The token extraction tool reads an Awwwards.com page and reports its colors, fonts, spacing, borders, and shadows.
 
 ## Tools
 
@@ -78,7 +72,7 @@ npm install
 npm run build
 ```
 
-## How it actually works
+## How it works
 
 The search tools append the exact `"Site of the Day"` marker and `(site:awwwards.com/sites)` to each query. They call Serper's `/images` or `/search` endpoint, restrict links to Awwwards site pages, and reject results marked Honorable Mention, Nominee, or unknown. A result must include the award marker and a month/day/year signal before it can enter the shortlist. This filter uses indexed snippets and is provisional; `design_prepare_references` fetches the selected Awwwards page and provides authoritative verification for this workflow.
 
